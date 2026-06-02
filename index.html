@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>空运重量段成本预估器</title>
+<style>
+/* ============================== */
+/* 统一视觉规范 (Apple Style)     */
+/* ============================== */
+:root{
+  --bg:#f5f5f7; --card:#ffffff; --bd:#e5e5ea; --tx:#1d1d1f; --t2:#86868b; --t3:#aeaeb2;
+  --ac:#0071e3; --acl:#f0f4f8; --ach:#0060c0;
+  --su:#34c759; --sul:#e8f8ed; --wa:#ff9f0a; --wal:#fff8ed; --da:#ff3b30; --dal:#ffeded;
+  --in:#5ac8fa; --inl:#edf8fd;
+  --sh:0 1px 2px rgba(0,0,0,0.04); --shl:0 2px 12px rgba(0,0,0,0.06);
+  --r:10px; --rr:8px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','PingFang SC','Helvetica Neue',sans-serif;
+  background:var(--bg);color:var(--tx);line-height:1.5;-webkit-font-smoothing:antialiased;
+}
+.container{max-width:1400px;margin:0 auto;padding:32px 28px 80px}
+
+/* ---- Typography ---- */
+.h1{font-size:22px;font-weight:600;letter-spacing:-.3px}
+.h2{font-size:15px;font-weight:600;letter-spacing:-.2px}
+.h3{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.3px;color:var(--t2)}
+.lbl{font-size:12px;font-weight:500;color:var(--t2)}
+.val{font-size:26px;font-weight:600;letter-spacing:-.5px}
+.val-sm{font-size:18px;font-weight:600}
+.num{font-size:14px;font-weight:500;font-variant-numeric:tabular-nums}
+.num-sm{font-size:12px;font-variant-numeric:tabular-nums;color:var(--t2)}
+
+/* ---- Header ---- */
+.header{padding:0 0 28px}
+.header .h1{margin-bottom:4px}
+.header .sub{font-size:13px;color:var(--t2)}
+
+/* ---- Segment Control ---- */
+.seg-wrap{display:flex;justify-content:center;margin-bottom:28px}
+.seg{display:flex;background:#e8e8ed;border-radius:8px;padding:2px}
+.seg-btn{padding:7px 20px;border:none;background:transparent;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;color:var(--t2);transition:.15s;font-family:inherit;white-space:nowrap}
+.seg-btn.active{background:#fff;color:var(--tx);box-shadow:0 1px 2px rgba(0,0,0,0.06)}
+.seg-btn:hover:not(.active){color:var(--tx)}
+
+/* ---- Layout ---- */
+.single-layout{display:grid;grid-template-columns:420px 1fr;gap:24px;align-items:start}
+.compare-layout{display:flex;flex-direction:column;gap:24px}
+@media(max-width:960px){.single-layout{grid-template-columns:1fr}}
+
+/* ---- Cards ---- */
+.card{background:var(--card);border:1px solid var(--bd);border-radius:var(--r);box-shadow:var(--sh)}
+.card+.card{margin-top:16px}
+.ch{padding:14px 20px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px}
+.ch .h2{flex:1}
+.cb{padding:20px}
+
+/* ---- Form ---- */
+.fs{margin-bottom:20px}.fs:last-child{margin-bottom:0}
+.fst{margin-bottom:10px}
+.fr{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.fr3{grid-template-columns:1fr 1fr 1fr}
+.fg{display:flex;flex-direction:column;gap:3px}
+.fg input,.fg select{
+  padding:9px 11px;border:1px solid var(--bd);border-radius:var(--rr);font-size:13px;
+  font-family:inherit;background:#fafafa;width:100%;transition:border-color .15s,box-shadow .15s;
+  -webkit-appearance:none;appearance:none;
+}
+.fg input:focus,.fg select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 3px rgba(0,113,227,0.12);background:#fff}
+.fg input::placeholder{color:var(--t3)}
+.fg .hint{font-size:10px;color:var(--t3);margin-top:2px}
+.hr{border:none;border-top:1px solid var(--bd);margin:16px 0}
+
+/* Toggle group */
+.tg{display:flex;background:#f0f0f4;border-radius:var(--rr);padding:2px;margin-bottom:10px}
+.tg-btn{flex:1;padding:6px 10px;border:none;background:transparent;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;color:var(--t2);transition:.15s;font-family:inherit}
+.tg-btn.active{background:#fff;color:var(--tx);box-shadow:0 1px 2px rgba(0,0,0,0.05)}
+
+/* Rate grid */
+.rate-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.ri{display:flex;flex-direction:column;gap:2px}
+.ri .rl{font-size:10px;font-weight:600;color:var(--ac);letter-spacing:.5px}
+.ri input{padding:7px 8px;border:1px solid var(--bd);border-radius:6px;font-size:12px;background:#fafafa;width:100%;font-family:inherit}
+
+/* Switch */
+.sw-row{display:flex;align-items:center;gap:10px;margin-top:10px}
+.sw-row .lbl{cursor:pointer}
+.sw{position:relative;width:42px;height:22px;flex-shrink:0}
+.sw input{opacity:0;width:0;height:0}
+.sw-s{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#d1d1d6;border-radius:22px;transition:.2s}
+.sw-s:before{content:'';position:absolute;height:18px;width:18px;left:2px;bottom:2px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,0.15)}
+.sw input:checked+.sw-s{background:var(--ac)}
+.sw input:checked+.sw-s:before{transform:translateX(20px)}
+
+/* Buttons */
+.btn{width:100%;padding:12px;background:var(--ac);color:#fff;border:none;border-radius:var(--rr);font-size:14px;font-weight:600;cursor:pointer;transition:.15s;margin-top:8px;font-family:inherit;letter-spacing:-.2px}
+.btn:hover{background:var(--ach)}
+.btn-sm{padding:6px 14px;font-size:12px;width:auto;border-radius:6px}
+.btn-out{background:#fff;color:var(--ac);border:1px solid var(--bd)}
+.btn-out:hover{background:var(--acl);border-color:var(--ac)}
+.btn-sub{background:#fff;color:var(--t2);border:1px solid var(--bd)}
+.btn-sub:hover{background:#f5f5f7;color:var(--tx)}
+.btn-del{background:#fff;color:var(--da);border:1px solid var(--bd)}
+.btn-del:hover{background:var(--dal);border-color:var(--da)}
+.btn-row{display:flex;gap:8px}
+
+/* Error */
+.err{display:none;padding:10px 14px;background:var(--dal);color:var(--da);border-radius:var(--rr);font-size:13px;margin-top:10px}
+
+/* Results: Summary cards */
+.sc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.sc{padding:16px;border-radius:var(--r);border:1px solid var(--bd);background:var(--card)}
+.sc .scl{font-size:11px;color:var(--t2);margin-bottom:4px}
+.sc .val{font-size:24px}
+.sc .scu{font-size:12px;color:var(--t2);font-weight:400}
+.sc.hl{background:var(--acl);border-color:#bfdbfe}.sc.hl .val{color:var(--ac)}
+
+/* Info bar */
+.ib{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12px;padding:12px 16px;background:#fafafa;border-radius:var(--r);border:1px solid var(--bd);margin-bottom:16px}
+.ib-item{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.ib-item .ib-k{color:var(--t2)}
+.ib-item .ib-v{font-weight:600}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;letter-spacing:.3px}
+.bd-hi{background:var(--sul);color:var(--su)}
+.bd-me{background:var(--wal);color:var(--wa)}
+.bd-lo{background:var(--dal);color:var(--da)}
+.bd-info{background:var(--inl);color:#0077a7}
+
+/* Table */
+.tbl-wrap{overflow-x:auto;border-radius:var(--r);border:1px solid var(--bd)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{background:#fafafa;padding:10px 14px;text-align:left;font-weight:600;font-size:12px;color:var(--t2);border-bottom:2px solid var(--bd);white-space:nowrap}
+tbody td{padding:9px 14px;border-bottom:1px solid #f0f0f4;white-space:nowrap}
+tbody tr:hover{background:#fafafa}
+tbody tr.rec{background:var(--acl)}tbody tr.rec td{font-weight:600}
+.bd-rec{background:var(--ac);color:#fff}
+.bd-pv{background:#fff3cd;color:#856404}
+.bd-na{background:#e9ecef;color:#495057}
+.bd-lo{background:var(--sul);color:var(--su)}
+.bd-fa{background:var(--acl);color:var(--ac)}
+
+/* Bar chart */
+.bar-chart{margin:12px 0}
+.br{display:flex;align-items:center;margin-bottom:6px;gap:8px}
+.bl{width:50px;font-size:11px;font-weight:600;text-align:right;flex-shrink:0;color:var(--t2)}
+.bt{flex:1;height:24px;background:#f0f0f4;border-radius:6px;overflow:hidden;position:relative}
+.bf{height:100%;border-radius:6px;transition:width .4s;display:flex;align-items:center;padding-left:8px}
+.bf.na{background:#d0d5dd}.bf.pv{background:#fde68a}.bf.rc{background:var(--ac)}
+.bv{font-size:11px;font-weight:600;color:#fff}
+.bc{width:100px;font-size:13px;font-weight:500;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}
+
+/* Notes */
+.nl{list-style:none;padding:0}
+.nl li{padding:8px 14px;margin-bottom:5px;border-radius:var(--rr);font-size:12px;display:flex;align-items:flex-start;gap:8px;line-height:1.5}
+.nl li.nt-info{border-left:3px solid var(--in);background:var(--inl);color:#0077a7}
+.nl li.nt-warn{border-left:3px solid var(--wa);background:var(--wal);color:#92400e}
+.nl li.nt-ok{border-left:3px solid var(--su);background:var(--sul);color:#15803d}
+
+/* Provider cards */
+.pr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px}
+.pr-card{border:1px solid var(--bd);border-radius:var(--r);overflow:hidden;background:var(--card)}
+.pr-card .pch{padding:12px 16px;background:#fafafa;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center}
+.pr-card .pch .h2{font-size:14px}
+.pr-card .pcb{padding:16px}
+.add-btn{display:flex;align-items:center;justify-content:center;padding:28px;border:2px dashed var(--bd);border-radius:var(--r);cursor:pointer;color:var(--t2);font-size:13px;transition:.15s;min-height:80px;background:var(--card)}
+.add-btn:hover{border-color:var(--ac);color:var(--ac);background:var(--acl)}
+
+/* Airport autocomplete — list mounted to body, bypassing DOM/CSS nesting */
+.ac-list{display:none;position:fixed;max-height:220px;overflow-y:auto;background:#fff;border:1px solid var(--bd);border-radius:0 0 var(--rr) var(--rr);z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.15);min-width:200px}
+.ac-list.show{display:block}
+.ac-item{padding:8px 12px;cursor:pointer;font-size:12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f0f0f4}
+.ac-item:hover,.ac-item.sel{background:var(--acl)}
+.ac-item .ac-code{font-weight:700;color:var(--ac);min-width:40px}
+.ac-item .ac-name{color:var(--tx);flex:1;margin:0 8px}
+.ac-item .ac-info{font-size:10px;color:var(--t2)}
+
+/* Empty state */
+.empty{text-align:center;padding:64px 20px;color:var(--t2)}
+.empty .et{font-size:15px;font-weight:500;margin-bottom:6px}
+.empty .es{font-size:12px;color:var(--t3)}
+
+/* Compare summary */
+.cmp-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px}
+
+/* Currency warn */
+.cur-warn{padding:12px 16px;background:var(--wal);border:1px solid #ffe69c;border-radius:var(--r);font-size:13px;margin-bottom:16px;color:#92400e}
+
+/* SVG icon sizes */
+.ic{width:16px;height:16px;flex-shrink:0;opacity:.7}
+.ic-sm{width:14px;height:14px}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<!-- ======== HEADER ======== -->
+<div class="header">
+  <div class="h1">空运重量段成本预估器</div>
+  <div class="sub">单服务商计算 &middot; 多服务商比价 &middot; 重量段成本分析</div>
+</div>
+
+<!-- Mode Segment Control -->
+<div class="seg-wrap">
+  <div class="seg" id="modeSeg">
+    <button class="seg-btn active" data-mode="single">模式一 · 单服务商计算</button>
+    <button class="seg-btn" data-mode="compare">模式二 · 多服务商比价</button>
+  </div>
+</div>
+
+<!-- ============================ -->
+<!-- SINGLE MODE                  -->
+<!-- ============================ -->
+<div id="singleMode">
+<div class="single-layout">
+
+<!-- Left: Input -->
+<div>
+  <!-- Card 1: Service & Route -->
+  <div class="card">
+    <div class="ch"><div class="h2">服务商与航线</div></div>
+    <div class="cb">
+      <div class="fr"><div class="fg"><span class="lbl">服务商名称</span><input type="text" id="sProv" placeholder="示例服务商 A"></div><div class="fg"><span class="lbl">币种</span><select id="sCur"><option>CNY</option><option>USD</option><option>HKD</option></select></div></div>
+      <div class="fr"><div class="fg"><span class="lbl">起运地（机场代码）</span><input type="text" id="sOri" placeholder="SZX" autocomplete="off"></div><div class="fg"><span class="lbl">目的地（机场代码）</span><input type="text" id="sDst" placeholder="BKK" autocomplete="off"></div></div>
+      <div class="fr"><div class="fg"><span class="lbl">报价有效期</span><input type="date" id="sVal"></div><div class="fg"><span class="lbl">计费系数</span><input type="number" id="sBf" value="6000" min="1000"><span class="hint">默认 6000 cm&sup3;/kg</span></div></div>
+    </div>
+  </div>
+
+  <!-- Card 2: Cargo -->
+  <div class="card">
+    <div class="ch"><div class="h2">货物信息</div></div>
+    <div class="cb">
+      <div class="fr"><div class="fg"><span class="lbl">总实重 (kg)</span><input type="number" id="sGw" placeholder="80" step="0.01" min="0.01"></div><div class="fg"><span class="lbl">件数</span><input type="number" id="sPcs" placeholder="2" min="1"></div></div>
+      <div class="tg" id="sVolToggle">
+        <button class="tg-btn active" data-vm="dims">尺寸模式</button>
+        <button class="tg-btn" data-vm="cbm">CBM 模式</button>
+        <button class="tg-btn" data-vm="none">仅实重</button>
+      </div>
+      <div id="sDims"><div class="fr fr3"><div class="fg"><span class="lbl">长 L (cm)</span><input type="number" id="sL" placeholder="120" step="0.1"></div><div class="fg"><span class="lbl">宽 W (cm)</span><input type="number" id="sW" placeholder="80" step="0.1"></div><div class="fg"><span class="lbl">高 H (cm)</span><input type="number" id="sH" placeholder="60" step="0.1"></div></div></div>
+      <div id="sCbm" style="display:none"><div class="fg"><span class="lbl">总体积 (m&sup3;)</span><input type="number" id="sCbmV" placeholder="1.5" step="0.001"></div></div>
+    </div>
+  </div>
+
+  <!-- Card 3: Rules -->
+  <div class="card">
+    <div class="ch"><div class="h2">计算规则</div></div>
+    <div class="cb">
+      <div class="fg" style="margin-bottom:12px"><span class="lbl">计费重取整规则</span><select id="sRr"><option value="ceil_1kg">向上取整到 1 kg</option><option value="ceil_0.5kg">向上取整到 0.5 kg</option><option value="keep_decimal">保留小数</option></select></div>
+      <div class="sw-row"><label class="sw"><input type="checkbox" id="sAp" checked><span class="sw-s"></span></label><span class="lbl">允许靠级（自动比较更高重量段）</span></div>
+    </div>
+  </div>
+
+  <!-- Card 4: Rates -->
+  <div class="card">
+    <div class="ch"><div class="h2">重量段价格</div></div>
+    <div class="cb">
+      <div class="rate-grid">
+        <div class="ri"><span class="rl">Min</span><input type="number" id="sMin" placeholder="最低消费" step="0.01"></div>
+        <div class="ri"><span class="rl">N &lt;45</span><input type="number" id="sN" placeholder="元/kg" step="0.01"></div>
+        <div class="ri"><span class="rl">+45</span><input type="number" id="s45" placeholder="元/kg" step="0.01"></div>
+        <div class="ri"><span class="rl">+100</span><input type="number" id="s100" placeholder="元/kg" step="0.01"></div>
+        <div class="ri"><span class="rl">+300</span><input type="number" id="s300" placeholder="元/kg" step="0.01"></div>
+        <div class="ri"><span class="rl">+500</span><input type="number" id="s500" placeholder="元/kg" step="0.01"></div>
+        <div class="ri"><span class="rl">+1000</span><input type="number" id="s1000" placeholder="元/kg" step="0.01"></div>
+      </div>
+      <div class="err" id="sErr"></div>
+      <button class="btn" id="sBtn">执行预估</button>
+    </div>
+  </div>
+</div>
+
+<!-- Right: Results -->
+<div id="sResults">
+  <div class="card"><div class="empty"><div class="et">输入参数后执行预估</div><div class="es">系统将自动判定计算模式、计算体积重、比对重量段、输出最低成本方案</div></div></div>
+</div>
+
+</div>
+</div>
+
+<!-- ============================ -->
+<!-- COMPARE MODE                 -->
+<!-- ============================ -->
+<div id="compareMode" style="display:none">
+
+<!-- Shared Cargo & Rules -->
+<div class="card">
+  <div class="ch"><div class="h2">统一货物信息与计算规则</div></div>
+  <div class="cb">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px">
+      <div>
+        <div class="fst"><div class="h3">货物信息</div></div>
+        <div class="fr"><div class="fg"><span class="lbl">总实重 (kg)</span><input type="number" id="cGw" placeholder="80" step="0.01"></div><div class="fg"><span class="lbl">件数</span><input type="number" id="cPcs" placeholder="2" min="1"></div></div>
+        <div class="tg" id="cVolToggle">
+          <button class="tg-btn active" data-vm="dims">尺寸模式</button>
+          <button class="tg-btn" data-vm="cbm">CBM 模式</button>
+          <button class="tg-btn" data-vm="none">仅实重</button>
+        </div>
+        <div id="cDims"><div class="fr fr3"><div class="fg"><span class="lbl">长 L (cm)</span><input type="number" id="cL" placeholder="120" step="0.1"></div><div class="fg"><span class="lbl">宽 W (cm)</span><input type="number" id="cW" placeholder="80" step="0.1"></div><div class="fg"><span class="lbl">高 H (cm)</span><input type="number" id="cH" placeholder="60" step="0.1"></div></div></div>
+        <div id="cCbm" style="display:none"><div class="fg"><span class="lbl">总体积 (m&sup3;)</span><input type="number" id="cCbmV" placeholder="1.5" step="0.001"></div></div>
+      </div>
+      <div>
+        <div class="fst"><div class="h3">默认计算规则</div></div>
+        <div class="fg" style="margin-bottom:10px"><span class="lbl">默认计费系数</span><input type="number" id="cBf" value="6000" min="1000"></div>
+        <div class="fg" style="margin-bottom:10px"><span class="lbl">默认取整规则</span><select id="cRr"><option value="ceil_1kg">向上取整到 1 kg</option><option value="ceil_0.5kg">向上取整到 0.5 kg</option><option value="keep_decimal">保留小数</option></select></div>
+        <div class="sw-row"><label class="sw"><input type="checkbox" id="cAp" checked><span class="sw-s"></span></label><span class="lbl">默认允许靠级</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Provider Cards -->
+<div class="pr-grid" id="prContainer"></div>
+
+<div class="err" id="cErr" style="margin-top:16px"></div>
+<button class="btn" id="cBtn" style="margin-top:16px">执行多服务商比价</button>
+
+<!-- Results -->
+<div id="cResults" style="margin-top:20px"></div>
+</div>
+
+</div>
+
+<!-- ============================== -->
+<!-- AIRPORT DATABASE               -->
+<!-- ============================== -->
+<script>
+const AIRPORTS=[
+  {c:'SZX',n:'深圳宝安国际机场',r:'深圳',t:'广东,中国'},{c:'CAN',n:'广州白云国际机场',r:'广州',t:'广东,中国'},
+  {c:'HKG',n:'香港国际机场',r:'香港',t:'中国香港'},{c:'PVG',n:'上海浦东国际机场',r:'上海',t:'上海,中国'},
+  {c:'SHA',n:'上海虹桥国际机场',r:'上海',t:'上海,中国'},{c:'PEK',n:'北京首都国际机场',r:'北京',t:'北京,中国'},
+  {c:'PKX',n:'北京大兴国际机场',r:'北京',t:'北京,中国'},{c:'CKG',n:'重庆江北国际机场',r:'重庆',t:'重庆,中国'},
+  {c:'CTU',n:'成都双流国际机场',r:'成都',t:'四川,中国'},{c:'TFU',n:'成都天府国际机场',r:'成都',t:'四川,中国'},
+  {c:'XMN',n:'厦门高崎国际机场',r:'厦门',t:'福建,中国'},{c:'TSN',n:'天津滨海国际机场',r:'天津',t:'天津,中国'},
+  {c:'CGO',n:'郑州新郑国际机场',r:'郑州',t:'河南,中国'},{c:'WUH',n:'武汉天河国际机场',r:'武汉',t:'湖北,中国'},
+  {c:'NKG',n:'南京禄口国际机场',r:'南京',t:'江苏,中国'},{c:'HGH',n:'杭州萧山国际机场',r:'杭州',t:'浙江,中国'},
+  {c:'NGB',n:'宁波栎社国际机场',r:'宁波',t:'浙江,中国'},{c:'TAO',n:'青岛胶东国际机场',r:'青岛',t:'山东,中国'},
+  {c:'KMG',n:'昆明长水国际机场',r:'昆明',t:'云南,中国'},{c:'XIY',n:'西安咸阳国际机场',r:'西安',t:'陕西,中国'},
+  {c:'HAK',n:'海口美兰国际机场',r:'海口',t:'海南,中国'},{c:'SYX',n:'三亚凤凰国际机场',r:'三亚',t:'海南,中国'},
+  {c:'CSX',n:'长沙黄花国际机场',r:'长沙',t:'湖南,中国'},{c:'FOC',n:'福州长乐国际机场',r:'福州',t:'福建,中国'},
+  {c:'MFM',n:'澳门国际机场',r:'澳门',t:'中国澳门'},{c:'DLC',n:'大连周水子国际机场',r:'大连',t:'辽宁,中国'},
+  {c:'SHE',n:'沈阳桃仙国际机场',r:'沈阳',t:'辽宁,中国'},{c:'HRB',n:'哈尔滨太平国际机场',r:'哈尔滨',t:'黑龙江,中国'},
+  {c:'URC',n:'乌鲁木齐地窝堡国际机场',r:'乌鲁木齐',t:'新疆,中国'},{c:'TNA',n:'济南遥墙国际机场',r:'济南',t:'山东,中国'},
+  {c:'BKK',n:'曼谷素万那普国际机场',r:'曼谷',t:'泰国'},{c:'DMK',n:'曼谷廊曼国际机场',r:'曼谷',t:'泰国'},
+  {c:'HAN',n:'河内内排国际机场',r:'河内',t:'越南'},{c:'SGN',n:'胡志明新山一国际机场',r:'胡志明',t:'越南'},
+  {c:'HPH',n:'海防吉碑国际机场',r:'海防',t:'越南'},{c:'DAD',n:'岘港国际机场',r:'岘港',t:'越南'},
+  {c:'MNL',n:'马尼拉尼诺伊阿基诺国际机场',r:'马尼拉',t:'菲律宾'},{c:'CEB',n:'宿务麦克坦国际机场',r:'宿务',t:'菲律宾'},
+  {c:'CRK',n:'克拉克国际机场',r:'克拉克',t:'菲律宾'},{c:'SIN',n:'新加坡樟宜国际机场',r:'新加坡',t:'新加坡'},
+  {c:'KUL',n:'吉隆坡国际机场',r:'吉隆坡',t:'马来西亚'},{c:'PEN',n:'槟城国际机场',r:'槟城',t:'马来西亚'},
+  {c:'CGK',n:'雅加达苏加诺哈达国际机场',r:'雅加达',t:'印尼'},{c:'SUB',n:'泗水朱安达国际机场',r:'泗水',t:'印尼'},
+  {c:'PNH',n:'金边国际机场',r:'金边',t:'柬埔寨'},{c:'RGN',n:'仰光国际机场',r:'仰光',t:'缅甸'},
+  {c:'VTE',n:'万象瓦岱国际机场',r:'万象',t:'老挝'},{c:'BWN',n:'斯里巴加湾国际机场',r:'斯里巴加湾',t:'文莱'},
+  {c:'ICN',n:'首尔仁川国际机场',r:'首尔',t:'韩国'},{c:'GMP',n:'首尔金浦国际机场',r:'首尔',t:'韩国'},
+  {c:'PUS',n:'釜山金海国际机场',r:'釜山',t:'韩国'},{c:'NRT',n:'东京成田国际机场',r:'东京',t:'日本'},
+  {c:'HND',n:'东京羽田国际机场',r:'东京',t:'日本'},{c:'KIX',n:'大阪关西国际机场',r:'大阪',t:'日本'},
+  {c:'NGO',n:'名古屋中部国际机场',r:'名古屋',t:'日本'},{c:'TPE',n:'台北桃园国际机场',r:'台北',t:'中国台湾'},
+  {c:'DXB',n:'迪拜国际机场',r:'迪拜',t:'阿联酋'},{c:'DWC',n:'迪拜世界中心机场',r:'迪拜',t:'阿联酋'},
+  {c:'AUH',n:'阿布扎比国际机场',r:'阿布扎比',t:'阿联酋'},{c:'DOH',n:'多哈哈马德国际机场',r:'多哈',t:'卡塔尔'},
+  {c:'DEL',n:'德里英迪拉甘地国际机场',r:'德里',t:'印度'},{c:'BOM',n:'孟买贾特拉帕蒂国际机场',r:'孟买',t:'印度'},
+  {c:'IST',n:'伊斯坦布尔国际机场',r:'伊斯坦布尔',t:'土耳其'},
+  {c:'FRA',n:'法兰克福国际机场',r:'法兰克福',t:'德国'},{c:'AMS',n:'阿姆斯特丹史基浦机场',r:'阿姆斯特丹',t:'荷兰'},
+  {c:'LHR',n:'伦敦希思罗机场',r:'伦敦',t:'英国'},{c:'CDG',n:'巴黎戴高乐国际机场',r:'巴黎',t:'法国'},
+  {c:'LGG',n:'列日机场',r:'列日',t:'比利时'},{c:'MXP',n:'米兰马尔彭萨机场',r:'米兰',t:'意大利'},
+  {c:'LAX',n:'洛杉矶国际机场',r:'洛杉矶',t:'美国'},{c:'JFK',n:'纽约肯尼迪国际机场',r:'纽约',t:'美国'},
+  {c:'ORD',n:'芝加哥奥黑尔国际机场',r:'芝加哥',t:'美国'},{c:'MIA',n:'迈阿密国际机场',r:'迈阿密',t:'美国'},
+  {c:'SFO',n:'旧金山国际机场',r:'旧金山',t:'美国'},{c:'DFW',n:'达拉斯沃斯堡国际机场',r:'达拉斯',t:'美国'},
+  {c:'ATL',n:'亚特兰大哈茨菲尔德国际机场',r:'亚特兰大',t:'美国'},{c:'MEM',n:'孟菲斯国际机场',r:'孟菲斯',t:'美国'},
+  {c:'YVR',n:'温哥华国际机场',r:'温哥华',t:'加拿大'},{c:'YYZ',n:'多伦多皮尔逊国际机场',r:'多伦多',t:'加拿大'},
+  {c:'SYD',n:'悉尼金斯福德史密斯机场',r:'悉尼',t:'澳大利亚'},{c:'MEL',n:'墨尔本国际机场',r:'墨尔本',t:'澳大利亚'},
+  {c:'AKL',n:'奥克兰国际机场',r:'奥克兰',t:'新西兰'},
+];
+
+function searchAirports(q){
+  if(!q||q.length<1)return[];q=q.toUpperCase().trim();
+  let r=[],exact=[],prefix=[],mid=[],city=[];
+  for(let a of AIRPORTS){
+    if(a.c===q){exact.push(a);continue}
+    if(a.c.startsWith(q)){prefix.push(a);continue}
+    if(a.c.includes(q)){mid.push(a);continue}
+    if(a.n.toUpperCase().includes(q)||a.r.includes(q)||(a.t&&a.t.includes(q))){city.push(a)}
+  }
+  return[...exact,...prefix,...mid,...city].slice(0,12);
+}
+
+function setupAutocomplete(inputId){
+  let inp=document.getElementById(inputId);if(!inp)return;
+
+  // If already set up, skip
+  if(inp.dataset.acReady==='1')return;
+  inp.dataset.acReady='1';
+
+  // Create list and mount to body (bypasses all DOM nesting/CSS issues)
+  let list=document.createElement('div');list.className='ac-list';list.id=inputId+'-list';
+  document.body.appendChild(list);
+
+  let selIdx=-1;
+
+  function posList(){
+    let r=inp.getBoundingClientRect();
+    list.style.top=(r.bottom+2)+'px';
+    list.style.left=r.left+'px';
+    list.style.width=Math.max(r.width,200)+'px';
+  }
+
+  inp.addEventListener('input',()=>{selIdx=-1;showList()});
+  inp.addEventListener('focus',()=>{if(inp.value.length>=1)showList()});
+  inp.addEventListener('blur',()=>{setTimeout(()=>{list.classList.remove('show')},200)});
+  inp.addEventListener('keydown',e=>{
+    let items=list.querySelectorAll('.ac-item');
+    if(e.key==='ArrowDown'){e.preventDefault();selIdx=Math.min(selIdx+1,items.length-1);updSel(items)}
+    else if(e.key==='ArrowUp'){e.preventDefault();selIdx=Math.max(selIdx-1,0);updSel(items)}
+    else if(e.key==='Enter'){e.preventDefault();if(selIdx>=0&&items[selIdx]){selAirport(items[selIdx],inp,list)}else if(items.length>0){selAirport(items[0],inp,list)}}
+    else if(e.key==='Escape'){list.classList.remove('show')}
+  });
+  window.addEventListener('scroll',posList,{passive:true});
+  window.addEventListener('resize',posList,{passive:true});
+
+  function showList(){
+    let results=searchAirports(inp.value);
+    if(!results.length){list.classList.remove('show');return}
+    list.innerHTML=results.map((a,i)=>`<div class="ac-item" data-idx="${i}" data-code="${a.c}" data-name="${a.n}" data-region="${a.r}"><span class="ac-code">${a.c}</span><span class="ac-name">${a.n}</span><span class="ac-info">${a.r}</span></div>`).join('');
+    list.querySelectorAll('.ac-item').forEach(item=>{item.addEventListener('mousedown',e=>{e.preventDefault();selAirport(item,inp,list)})});
+    posList();
+    list.classList.add('show');
+  }
+
+  function updSel(items){items.forEach((el,i)=>{el.classList.toggle('sel',i===selIdx)})}
+  function selAirport(el,inp,list){inp.value=el.dataset.code;inp.dataset.airportName=el.dataset.name;inp.dataset.airportRegion=el.dataset.region;list.classList.remove('show')}
+}
+</script>
+
+<!-- ============================== -->
+<!-- CALCULATION ENGINE             -->
+<!-- ============================== -->
+<script>
+const D=6000;
+function dimsMode(p,l,w,h,g,bf){let t=p*l*w*h;return{cbm:+(t/1e6).toFixed(6),vw:+(t/bf).toFixed(2),rc:Math.max(g,t/bf)}}
+function cbmMode(c,g,bf){let v=c*1e6/bf;return{vw:+v.toFixed(2),rc:Math.max(g,v)}}
+function roundWt(w,r){if(r==='ceil_1kg')return Math.ceil(w);if(r==='ceil_0.5kg')return Math.ceil(w*2)/2;return w}
+function getNat(rc,rs){let ck=[{n:'+1000',t:1000,p:rs._1000},{n:'+500',t:500,p:rs._500},{n:'+300',t:300,p:rs._300},{n:'+100',t:100,p:rs._100},{n:'+45',t:45,p:rs._45}];
+for(let c of ck)if(c.p!=null&&rc>=c.t)return c;if(rs._n!=null)return{n:'N',t:null,p:rs._n};if(rs._45!=null)return{n:'+45',t:45,p:rs._45};return null}
+function genCands(rc,rs,natNm,ap){let cs=[];
+if(rs._n!=null&&rc<45){let c=rc*rs._n;if(rs._min!=null&&c<rs._min)c=rs._min;cs.push({tier:'N',th:null,sw:rc,up:rs._n,cost:+c.toFixed(2),pv:false,rec:false})}
+let tds=[{n:'+45',t:45,p:rs._45},{n:'+100',t:100,p:rs._100},{n:'+300',t:300,p:rs._300},{n:'+500',t:500,p:rs._500},{n:'+1000',t:1000,p:rs._1000}];
+for(let td of tds){if(td.p==null)continue;let isNat=natNm===td.n,sw,pv;
+if(isNat){sw=rc;pv=false}else if(ap&&rc<td.t){sw=td.t;pv=true}else continue;
+let c=sw*td.p;if(rs._min!=null&&c<rs._min)c=rs._min;cs.push({tier:td.n,th:td.t,sw,up:td.p,cost:+c.toFixed(2),pv,rec:false})}return cs}
+
+function estimate(pr){let{aw,gw,bf,pc,lc,wc,hc,cbm,rr,ap,rs}=pr;if(!gw||gw<=0)throw Error('总实重必须大于 0');
+let cm,cbmV=null,vw=null,rw;
+let hd=pc&&pc>0&&lc>0&&wc>0&&hc>0,hc2=cbm!=null&&cbm>0;
+if(hd){cm='dimension_based';let d=dimsMode(pc,lc,wc,hc,gw,bf);cbmV=d.cbm;vw=d.vw;rw=d.rc}
+else if(hc2){cm='cbm_based';cbmV=cbm;let d=cbmMode(cbm,gw,bf);vw=d.vw;rw=d.rc}
+else{cm='weight_only_estimate';rw=gw}
+let br=vw!=null&&gw>0?+(vw/gw).toFixed(2):null;
+let rc=roundWt(rw,rr);
+let nat=getNat(rc,rs);if(!nat)throw Error('价格表中无可用重量段');
+let cs=genCands(rc,rs,nat.n,ap);if(!cs.length)throw Error('无法生成有效方案');
+cs.sort((a,b)=>{if(a.cost!==b.cost)return a.cost-b.cost;return a.pv?1:-1});cs[0].rec=true;
+let rec=cs[0],cfMap={dimension_based:'高',cbm_based:'中',weight_only_estimate:'低'},cf=cfMap[cm];
+let rm=[];
+if(cm==='weight_only_estimate')rm.push('仅按实重预估，缺少尺寸和 CBM 数据，最终计费重可能变化');else rm.push('已根据体积信息完成计算');
+if(rec.pv)rm.push('靠级至 '+rec.tier+' 段后成本更低，自然段为 '+nat.n);else rm.push('未发生靠级，按自然段计费');
+if(br!=null&&br>1)rm.push('货物为泡货（泡比 '+br.toFixed(2)+'），体积重主导计费');
+let ncs=cs.filter(c=>!c.pv);if(rec.pv&&ncs.length){let s=ncs[0].cost-rec.cost;if(s>0)rm.push('靠级节省 '+s.toFixed(0)+' 元，建议与航司确认靠级可行性')}
+if(cs.length>=2){let d=cs[1].cost-cs[0].cost;if(d>0&&d<10)rm.push('备选方案 '+cs[1].tier+' 段成本仅差 '+d.toFixed(1)+' 元，可灵活选择')}
+if(pr.valid)rm.push('报价有效期至 '+pr.valid+'，请在此日期前确认');
+return{cm,bf,rr,gw,cbmV,vw,br,rw:+rw.toFixed(2),rc,recTier:rec.tier,sw:rec.sw,rate:rec.up,cost:rec.cost,pv:rec.pv,cf,rm,cs,cur:pr.cur||'CNY'}
+}
+</script>
+
+<!-- ============================== -->
+<!-- UI LOGIC                       -->
+<!-- ============================== -->
+<script>
+let pCount=0,sVolMode='dims',cVolMode='dims';
+function pF(id){let v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v}
+function shErr(id,msg){let e=document.getElementById(id);e.textContent=msg;e.style.display='block'}
+
+// Mode switch
+document.getElementById('modeSeg').addEventListener('click',e=>{
+  let t=e.target;if(!t.classList.contains('seg-btn'))return;
+  document.querySelectorAll('#modeSeg .seg-btn').forEach(b=>b.classList.remove('active'));t.classList.add('active');
+  let m=t.dataset.mode;
+  document.getElementById('singleMode').style.display=m==='single'?'block':'none';
+  document.getElementById('compareMode').style.display=m==='compare'?'block':'none';
+});
+
+// Volume toggles
+function setupVolToggle(tgId,dimsId,cbmId,holder){
+  document.getElementById(tgId).addEventListener('click',e=>{
+    let t=e.target;if(!t.classList.contains('tg-btn'))return;
+    document.querySelectorAll('#'+tgId+' .tg-btn').forEach(b=>b.classList.remove('active'));t.classList.add('active');
+    if(holder)holder.vm=t.dataset.vm;
+    document.getElementById(dimsId).style.display=t.dataset.vm==='dims'?'block':'none';
+    document.getElementById(cbmId).style.display=t.dataset.vm==='cbm'?'block':'none';
+  });
+}
+setupVolToggle('sVolToggle','sDims','sCbm',{set vm(v){sVolMode=v},get vm(){return sVolMode}});
+setupVolToggle('cVolToggle','cDims','cCbm',{set vm(v){cVolMode=v},get vm(){return cVolMode}});
+
+// Single mode calc
+document.getElementById('sBtn').addEventListener('click',()=>{
+  document.getElementById('sErr').style.display='none';
+  try{
+    let r=estimate({
+      gw:parseFloat(document.getElementById('sGw').value),
+      pc:parseInt(document.getElementById('sPcs').value)||null,
+      lc:parseFloat(document.getElementById('sL').value)||0,wc:parseFloat(document.getElementById('sW').value)||0,hc:parseFloat(document.getElementById('sH').value)||0,
+      cbm:sVolMode==='cbm'?(parseFloat(document.getElementById('sCbmV').value)||null):null,
+      bf:parseFloat(document.getElementById('sBf').value)||D,
+      rr:document.getElementById('sRr').value,ap:document.getElementById('sAp').checked,
+      cur:document.getElementById('sCur').value,valid:document.getElementById('sVal').value||null,
+      rs:{_min:pF('sMin'),_n:pF('sN'),_45:pF('s45'),_100:pF('s100'),_300:pF('s300'),_500:pF('s500'),_1000:pF('s1000')}
+    });
+    document.getElementById('sResults').innerHTML=renderSingle(r);
+  }catch(e){shErr('sErr',e.message)}
+});
+
+// Provider cards
+function addCard(){
+  pCount++;let id=pCount;
+  let grid=document.getElementById('prContainer');
+  let div=document.createElement('div');div.className='pr-card';div.id='pcard-'+id;
+  div.innerHTML=`
+    <div class="pch"><div class="h2">服务商 ${id}</div><div class="btn-row"><button class="btn-sm btn-sub" onclick="copyCard(${id})">复制</button><button class="btn-sm btn-del" onclick="delCard(${id})">删除</button></div></div>
+    <div class="pcb">
+      <div class="fr"><div class="fg"><span class="lbl">服务商名称</span><input type="text" id="pName-${id}" placeholder="示例服务商 A"></div><div class="fg"><span class="lbl">航司 / 渠道</span><input type="text" id="pAir-${id}" placeholder="示例渠道 A"></div></div>
+      <div class="fr"><div class="fg"><span class="lbl">时效 (天)</span><input type="number" id="pTime-${id}" placeholder="2" min="1"></div><div class="fg"><span class="lbl">币种</span><select id="pCur-${id}"><option>CNY</option><option>USD</option><option>HKD</option></select></div></div>
+      <div class="fr"><div class="fg"><span class="lbl">起运地（机场代码）</span><input type="text" id="pOri-${id}" placeholder="SZX" autocomplete="off"></div><div class="fg"><span class="lbl">目的地（机场代码）</span><input type="text" id="pDst-${id}" placeholder="BKK" autocomplete="off"></div></div>
+      <div class="fr"><div class="fg"><span class="lbl">报价有效期</span><input type="date" id="pVal-${id}"></div></div>
+      <div class="hr"></div>
+      <div class="fst"><div class="h3">服务商独立规则</div></div>
+      <div class="fr"><div class="fg"><span class="lbl">计费系数</span><input type="number" id="pBf-${id}" value="6000" min="1000"></div><div class="fg"><span class="lbl">取整规则</span><select id="pRr-${id}"><option value="ceil_1kg">向上取整到 1 kg</option><option value="ceil_0.5kg">向上取整到 0.5 kg</option><option value="keep_decimal">保留小数</option></select></div></div>
+      <div class="sw-row"><label class="sw"><input type="checkbox" id="pAp-${id}" checked><span class="sw-s"></span></label><span class="lbl">允许靠级</span></div>
+      <div class="hr"></div>
+      <div class="fst"><div class="h3">重量段价格</div></div>
+      <div class="rate-grid">
+        <div class="ri"><span class="rl">Min</span><input type="number" id="pMin-${id}" step="0.01"></div>
+        <div class="ri"><span class="rl">N &lt;45</span><input type="number" id="pN-${id}" step="0.01"></div>
+        <div class="ri"><span class="rl">+45</span><input type="number" id="p45-${id}" step="0.01"></div>
+        <div class="ri"><span class="rl">+100</span><input type="number" id="p100-${id}" step="0.01"></div>
+        <div class="ri"><span class="rl">+300</span><input type="number" id="p300-${id}" step="0.01"></div>
+        <div class="ri"><span class="rl">+500</span><input type="number" id="p500-${id}" step="0.01"></div>
+        <div class="ri"><span class="rl">+1000</span><input type="number" id="p1000-${id}" step="0.01"></div>
+      </div>
+      <div style="margin-top:10px"><button class="btn-sm btn-sub" onclick="clearRates(${id})">清空价格</button></div>
+    </div>`;
+  grid.insertBefore(div,grid.lastElementChild);
+  setTimeout(()=>{setupAutocomplete('pOri-'+id);setupAutocomplete('pDst-'+id)},50);
+}
+
+function delCard(id){document.getElementById('pcard-'+id)?.remove()}
+
+function copyCard(id){
+  addCard();let nid=pCount,oid=id;
+  ['Name','Air','Time','Cur','Ori','Dst','Val','Bf','Rr','Ap'].forEach(k=>{
+    let os=document.getElementById('p'+k+'-'+oid),ns=document.getElementById('p'+k+'-'+nid);
+    if(os&&ns){if(k==='Ap')ns.checked=os.checked;else ns.value=os.value}
+  });
+  ['Min','N','45','100','300','500','1000'].forEach(k=>{
+    let os=document.getElementById('p'+k+'-'+oid),ns=document.getElementById('p'+k+'-'+nid);
+    if(os&&ns)ns.value=os.value;
+  });
+}
+
+function clearRates(id){['Min','N','45','100','300','500','1000'].forEach(k=>{let el=document.getElementById('p'+k+'-'+id);if(el)el.value=''})}
+
+// Init compare mode
+document.addEventListener('DOMContentLoaded',()=>{
+  try{
+  let grid=document.getElementById('prContainer');
+  let ab=document.createElement('div');ab.className='add-btn';ab.textContent='添加服务商';ab.onclick=addCard;grid.appendChild(ab);
+  addCard();addCard();
+  let fills=[{nm:'示例服务商 A',air:'示例渠道 A',t:2,o:'SZX',d:'BKK',min:999,n:88,'45':66,'100':55,'300':44,'500':33,'1000':22},
+             {nm:'示例服务商 B',air:'示例渠道 B',t:3,o:'SZX',d:'BKK',min:888,n:77,'45':60,'100':50,'300':40,'500':30,'1000':20}];
+  for(let i=0;i<fills.length;i++){let f=fills[i],k=i+1;
+    document.getElementById('pName-'+k).value=f.nm;document.getElementById('pAir-'+k).value=f.air;document.getElementById('pTime-'+k).value=f.t;
+    document.getElementById('pOri-'+k).value=f.o;document.getElementById('pDst-'+k).value=f.d;
+    ['Min','N','45','100','300','500','1000'].forEach(x=>{let el=document.getElementById('p'+x+'-'+k);if(el)el.value=f[x]});
+  }
+  document.getElementById('cGw').value='80';document.getElementById('cPcs').value='2';
+  document.getElementById('cL').value='120';document.getElementById('cW').value='80';document.getElementById('cH').value='60';
+  }catch(e){console.error('Init compare defaults error:',e)}
+});
+
+// Compare calc
+document.getElementById('cBtn').addEventListener('click',()=>{
+  document.getElementById('cErr').style.display='none';
+  try{
+    let gw=parseFloat(document.getElementById('cGw').value);
+    let pc=parseInt(document.getElementById('cPcs').value)||null;
+    let lc=parseFloat(document.getElementById('cL').value)||0,wc=parseFloat(document.getElementById('cW').value)||0,hc=parseFloat(document.getElementById('cH').value)||0;
+    let cbm=cVolMode==='cbm'?(parseFloat(document.getElementById('cCbmV').value)||null):null;
+    let dbf=parseFloat(document.getElementById('cBf').value)||D,drr=document.getElementById('cRr').value,dap=document.getElementById('cAp').checked;
+
+    let providers=[];
+    for(let i=1;i<=pCount;i++){
+      let el=document.getElementById('pcard-'+i);if(!el)continue;
+      let nm=document.getElementById('pName-'+i)?.value.trim();if(!nm)continue;
+      providers.push({
+        name:nm,airline:document.getElementById('pAir-'+i)?.value.trim()||'',
+        transitTime:parseInt(document.getElementById('pTime-'+i)?.value)||null,
+        currency:document.getElementById('pCur-'+i)?.value||'CNY',
+        origin:document.getElementById('pOri-'+i)?.value.trim()||'',
+        destination:document.getElementById('pDst-'+i)?.value.trim()||'',
+        validUntil:document.getElementById('pVal-'+i)?.value||null,
+        bf:parseFloat(document.getElementById('pBf-'+i)?.value)||dbf,
+        rr:document.getElementById('pRr-'+i)?.value||drr,
+        ap:document.getElementById('pAp-'+i)?.checked,
+        rates:{_min:pF2('pMin-'+i),_n:pF2('pN-'+i),_45:pF2('p45-'+i),_100:pF2('p100-'+i),_300:pF2('p300-'+i),_500:pF2('p500-'+i),_1000:pF2('p1000-'+i)}
+      });
+    }
+    if(!providers.length)throw Error('至少需要一个服务商');
+
+    let items=[],currencies=new Set();
+    for(let p of providers){
+      try{
+        let r=estimate({gw,pc,lc,wc,hc,cbm,bf:p.bf,rr:p.rr,ap:p.ap,cur:p.currency,valid:p.validUntil,rs:p.rates});
+        currencies.add(p.currency);items.push({...p,result:r});
+      }catch(e){items.push({...p,error:e.message})}
+    }
+    let cc=currencies.size<=1;
+    if(cc)items.sort((a,b)=>(a.result?.cost||999999)-(b.result?.cost||999999));
+    else _sortByCur(items);
+    for(let i=0;i<items.length;i++)items[i].rank=i+1;
+    _genLbls(items,cc);
+    document.getElementById('cResults').innerHTML=renderCompare({items,cc,gw,drr,dbf,dap});
+  }catch(e){shErr('cErr',e.message)}
+});
+
+function pF2(id){let el=document.getElementById(id);if(!el)return null;let v=parseFloat(el.value);return isNaN(v)?null:v}
+function _sortByCur(items){let g={};for(let i of items){let c=i.result?.currency||i.currency||'';if(!g[c])g[c]=[];g[c].push(i)}
+for(let k in g)g[k].sort((a,b)=>(a.result?.cost||0)-(b.result?.cost||0));
+let res=[],max=Math.max(...Object.values(g).map(a=>a.length)),ks=Object.keys(g).sort();
+for(let i=0;i<max;i++)for(let k of ks)if(i<g[k].length)res.push(g[k][i]);items.splice(0,items.length,...res)}
+function _genLbls(items,cc){
+  if(!items.length)return;
+  let bc=[...items].filter(i=>!i.error).sort((a,b)=>a.result.cost-b.result.cost);
+  let bn=[...items].filter(i=>!i.error&&!i.result.pv).sort((a,b)=>a.result.cost-b.result.cost);
+  let bt=[...items].filter(i=>!i.error&&i.transitTime!=null).sort((a,b)=>(a.transitTime||999)-(b.transitTime||999));
+  if(bc.length)bc[0].label='最低成本方案';
+  if(bn.length&&bn[0]!==bc[0])bn[0].label='自然段最低方案';
+  for(let i of items){if(i.error||i.label)continue;if(i.result.pv){let nc=i.result.cs.filter(c=>!c.pv);if(nc.length&&nc[0].cost>0){let pct=(nc[0].cost-i.result.cost)/nc[0].cost*100;if(pct>10){i.label='靠级节省方案';break}}}}
+  if(bt.length&&cc&&bt[0]!==bc[0]&&!bt[0].label)bt[0].label='时效较快';
+}
+
+// Render single results
+function renderSingle(r){
+  let cc=r.cf==='高'?'hi':(r.cf==='中'?'me':'lo'),ct=r.cf+'可信度';
+  let mm={dimension_based:'精确尺寸',cbm_based:'总体积',weight_only_estimate:'仅实重'};
+  let costEl=`
+    <div class="sc-grid">
+      <div class="sc hl"><div class="scl">空运成本</div><div class="val">${r.cur} ${r.cost.toFixed(2)}</div></div>
+      <div class="sc"><div class="scl">推荐重量段</div><div class="val">${r.recTier}</div></div>
+      <div class="sc"><div class="scl">结算计费重</div><div class="val">${r.sw.toFixed(1)}<span class="scu"> kg</span></div></div>
+      <div class="sc"><div class="scl">适用单价</div><div class="val">${r.recTier==='Min'?r.rate.toFixed(2)+' 元/票':r.rate.toFixed(2)}<span class="scu"> 元/kg</span></div></div>
+      <div class="sc"><div class="scl">可信度</div><div class="val"><span class="badge bd-${cc}">${ct}</span></div></div>
+    </div>`;
+
+  let ibParts=[
+    ['实重',r.gw.toFixed(1)+' kg'],['总体积',r.cbmV!=null?r.cbmV.toFixed(4)+' m&sup3;':'—'],
+    ['体积重',r.vw!=null?r.vw.toFixed(1)+' kg':'—'],['泡比',r.br!=null?r.br.toFixed(2):'—'],
+    ['原始计费重',r.rw.toFixed(1)+' kg'],['取整后计费重',r.rc.toFixed(1)+' kg'],
+    ['计算模式',mm[r.cm]],[r.rr,''],
+  ];
+  let infoBar=`<div class="ib">${ibParts.map(([k,v],i)=>`<div class="ib-item"><span class="ib-k">${k}</span><span class="ib-v">${v}</span></div>`).join('')}${r.pv?'<span class="badge bd-pv">靠级</span>':'<span class="badge bd-na">自然段</span>'}</div>`;
+
+  let table=`<div class="card"><div class="ch"><div class="h2">方案对比</div></div><div class="tbl-wrap"><table><thead><tr><th>重量段</th><th>段阈值</th><th>结算重量</th><th>单价</th><th>成本</th><th>段类型</th><th>推荐</th></tr></thead><tbody>
+    ${r.cs.map(c=>`<tr class="${c.rec?'rec':''}"><td>${c.tier}</td><td>${c.th!=null?'&ge; '+c.th+' kg':'—'}</td><td>${c.sw.toFixed(1)} kg</td><td>${c.tier==='Min'?c.up.toFixed(2)+' 元/票':c.up.toFixed(2)+' 元/kg'}</td><td>${r.cur} ${c.cost.toFixed(2)}</td><td>${c.pv?'<span class="badge bd-pv">靠级</span>':(c.tier!=='Min'?'<span class="badge bd-na">自然段</span>':'—')}</td><td>${c.rec?'<span class="badge bd-rec">推荐</span>':'—'}</td></tr>`).join('')}
+  </tbody></table></div></div>`;
+
+  let bar=`<div class="card"><div class="ch"><div class="h2">成本对比</div></div><div class="cb"><div class="bar-chart">
+    ${(()=>{let m=Math.max(...r.cs.map(c=>c.cost),1);return r.cs.map(c=>{let p=c.cost/m*100,cl=c.rec?'rc':(c.pv?'pv':'na');return`<div class="br"><div class="bl">${c.tier}</div><div class="bt"><div class="bf ${cl}" style="width:${p}%">${p>25?`<span class="bv">${r.cur} ${c.cost.toFixed(0)}</span>`:''}</div></div><div class="bc">${r.cur} ${c.cost.toFixed(2)}</div></div>`}).join('')})()}
+  </div></div></div>`;
+
+  let notes='';if(r.rm.length){notes=`<div class="card"><div class="ch"><div class="h2">备注与提醒</div></div><div class="cb"><ul class="nl">${r.rm.map(n=>{let cl='nt-info';
+    if(n.startsWith('靠级节省'))cl='nt-ok';else if(n.includes('泡货'))cl='nt-warn';else if(n.startsWith('已根据'))cl='nt-ok';
+    return`<li class="${cl}">${n}</li>`}).join('')}</ul></div></div>`}
+
+  return costEl+infoBar+table+bar+notes;
+}
+
+// Render compare results
+function renderCompare(cr){
+  let curWarn='';if(!cr.cc){let cs=new Set();cr.items.filter(i=>!i.error).forEach(i=>cs.add(i.result.cur));curWarn=`<div class="cur-warn">服务商币种不一致（${[...cs].join(', ')}），未自动排列排名，请人工比对汇率后确认</div>`}
+
+  let summary='';let vi=cr.items.filter(i=>!i.error);
+  if(vi.length){
+    let minC=vi[0];let natLow=vi.filter(i=>!i.result.pv).sort((a,b)=>a.result.cost-b.result.cost)[0];
+    let pvSave=vi.filter(i=>i.result.pv&&i.label==='靠级节省方案')[0];
+    summary=`<div class="cmp-sum">
+      <div class="sc hl"><div class="scl">最低成本服务商</div><div class="val-sm">${minC.name}</div></div>
+      <div class="sc hl"><div class="scl">最低成本</div><div class="val-sm">${minC.result.cur} ${minC.result.cost.toFixed(2)}</div></div>
+      <div class="sc"><div class="scl">推荐重量段</div><div class="val-sm">${minC.result.recTier}</div></div>
+      <div class="sc"><div class="scl">结算计费重</div><div class="val-sm">${minC.result.sw.toFixed(1)} kg</div></div>
+      <div class="sc"><div class="scl">服务商数量</div><div class="val-sm">${vi.length}</div></div>
+    </div>`;
+  }
+
+  let rows=cr.items.map(i=>{
+    if(i.error)return`<tr><td>—</td><td>${i.name}</td><td>${i.airline}</td><td colspan="8" style="color:var(--da)">${i.error}</td></tr>`;
+    let r=i.result,rc=i.rank===1?'rank-1':(i.rank===2?'rank-2':(i.rank===3?'rank-3':''));
+    let lbl='';if(i.label){let ls=i.label==='最低成本方案'?'bd-lo':(i.label==='自然段最低方案'?'bd-na':(i.label==='靠级节省方案'?'bd-pv':'bd-fa'));lbl=`<span class="badge ${ls}">${i.label}</span>`}
+    return`<tr class="${i.rank===1?'rec':''}"><td class="rank-col" style="font-weight:700;color:${i.rank===1?'var(--ac)':i.rank===2?'var(--t2)':'var(--t2)'}">${i.rank}</td><td>${i.name}</td><td>${i.airline}</td><td>${r.recTier}</td><td>${r.sw.toFixed(1)} kg</td><td>${r.rate.toFixed(2)} 元/kg</td><td>${r.cur} ${r.cost.toFixed(2)}</td><td>${r.pv?'<span class="badge bd-pv">是</span>':'<span class="badge bd-na">否</span>'}</td><td>${i.transitTime!=null?i.transitTime+' 天':'—'}</td><td>${lbl}</td></tr>`;
+  }).join('');
+
+  let table=`<div class="card"><div class="ch"><div class="h2">比价排名</div></div><div class="tbl-wrap"><table><thead><tr><th>排名</th><th>服务商</th><th>航司 / 渠道</th><th>重量段</th><th>结算重</th><th>单价</th><th>空运成本</th><th>靠级</th><th>时效</th><th>推荐标签</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+
+  let bar='';if(vi.length>1){bar=`<div class="card"><div class="ch"><div class="h2">成本对比</div></div><div class="cb"><div class="bar-chart">
+    ${(()=>{let m=Math.max(...vi.map(i=>i.result.cost),1);return vi.map((i,idx)=>{let p=i.result.cost/m*100,cl=idx===0?'rc':'na';return`<div class="br"><div class="bl">${i.name.substring(0,8)}</div><div class="bt"><div class="bf ${cl}" style="width:${p}%">${p>25?`<span class="bv">${i.result.cur} ${i.result.cost.toFixed(0)}</span>`:''}</div></div><div class="bc">${i.result.cur} ${i.result.cost.toFixed(2)}</div></div>`}).join('')})()}
+  </div></div></div>`}
+
+  return curWarn+summary+table+bar;
+}
+
+// Init single mode defaults & autocomplete
+document.addEventListener('DOMContentLoaded',()=>{
+  try{
+    document.getElementById('sGw').value='80';document.getElementById('sPcs').value='2';
+    document.getElementById('sL').value='120';document.getElementById('sW').value='80';document.getElementById('sH').value='60';
+    document.getElementById('sProv').value='示例服务商 A';
+    document.getElementById('sOri').value='SZX';document.getElementById('sDst').value='BKK';
+    document.getElementById('sMin').value='999';document.getElementById('sN').value='88';
+    document.getElementById('s45').value='66';document.getElementById('s100').value='55';
+    document.getElementById('s300').value='44';document.getElementById('s500').value='33';document.getElementById('s1000').value='22';
+    setupAutocomplete('sOri');setupAutocomplete('sDst');
+  }catch(e){console.error('Init single mode error:',e)}
+});
+
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.tagName==='INPUT'&&document.getElementById('singleMode').style.display!=='none')document.getElementById('sBtn').click()});
+</script>
+</body>
+</html>
