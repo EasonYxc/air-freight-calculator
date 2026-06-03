@@ -167,6 +167,14 @@ tbody tr.rec{background:var(--acl)}tbody tr.rec td{font-weight:600}
 .add-btn{display:flex;align-items:center;justify-content:center;padding:28px;border:2px dashed var(--bd);border-radius:var(--r);cursor:pointer;color:var(--t2);font-size:13px;transition:.15s;min-height:80px;background:var(--card)}
 .add-btn:hover{border-color:var(--ac);color:var(--ac);background:var(--acl)}
 
+/* Fee rows */
+.fee-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.fee-row{display:grid;grid-template-columns:34px 70px 1.2fr 130px 1fr 1fr 34px;gap:8px;align-items:end}
+.fee-row input,.fee-row select{padding:7px 8px;border:1px solid var(--bd);border-radius:6px;font-size:12px;background:#fafafa;width:100%;font-family:inherit}
+.fee-row .fee-check{align-self:center;justify-self:center}
+.fee-del{height:31px;width:31px;border:1px solid var(--bd);background:#fff;color:var(--da);border-radius:6px;cursor:pointer}
+@media(max-width:720px){.fee-row{grid-template-columns:34px 1fr 1fr}.fee-row .fee-name,.fee-row .fee-type,.fee-row .fee-amt,.fee-row .fee-min,.fee-row .fee-del{grid-column:auto}}
+
 /* Airport autocomplete — list mounted to body, bypassing DOM/CSS nesting */
 .ac-list{display:none;position:fixed;max-height:220px;overflow-y:auto;background:#fff;border:1px solid var(--bd);border-radius:0 0 var(--rr) var(--rr);z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.15);min-width:200px}
 .ac-list.show{display:block}
@@ -269,6 +277,18 @@ tbody tr.rec{background:var(--acl)}tbody tr.rec td{font-weight:600}
         <div class="ri"><span class="rl">+300</span><input type="number" id="s300" placeholder="元/kg" step="0.01"></div>
         <div class="ri"><span class="rl">+500</span><input type="number" id="s500" placeholder="元/kg" step="0.01"></div>
         <div class="ri"><span class="rl">+1000</span><input type="number" id="s1000" placeholder="元/kg" step="0.01"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 5: Surcharges -->
+  <div class="card">
+    <div class="ch"><div class="h2">附加费用</div></div>
+    <div class="cb">
+      <div class="sw-row"><label class="sw"><input type="checkbox" id="sFeeEnable"><span class="sw-s"></span></label><span class="lbl">启用附加费用计算</span></div>
+      <div id="sFeeBox" style="display:none">
+        <div class="fee-list" id="sFeeList"></div>
+        <button class="btn-sm btn-sub" id="sFeeAdd" style="margin-top:10px">新增费用项</button>
       </div>
       <div class="err" id="sErr"></div>
       <button class="btn" id="sBtn">执行预估</button>
@@ -457,6 +477,23 @@ for(let td of tds){if(td.p==null)continue;let isNat=natNm===td.n,sw,pv;
 if(isNat){sw=rc;pv=false}else if(ap&&rc<td.t){sw=td.t;pv=true}else continue;
 let c=sw*td.p;if(rs._min!=null&&c<rs._min)c=rs._min;cs.push({tier:td.n,th:td.t,sw,up:td.p,cost:+c.toFixed(2),pv,rec:false})}return cs}
 
+function calcFees(fees,ctx,cur){let rows=[],total=0,notes=[];
+for(let f of (fees||[])){if(!f.enabled)continue;
+  let code=(f.code||'').trim(),name=(f.name||'').trim(),type=f.type||'fixed',amt=Number(f.amount),min=Number(f.min||0);
+  if(!code&&!name)throw Error('费用名称不能为空');
+  if(isNaN(amt)||amt<0)throw Error((name||code)+' 费用金额不能为负数');
+  if(isNaN(min)||min<0)throw Error((name||code)+' 最低收费不能为负数');
+  let base='',cost=0,unit='';
+  if(type==='per_kg'){if(!ctx.sw)throw Error((name||code)+' 按 kg 计费需要结算计费重');base=ctx.sw.toFixed(1)+' kg';unit=cur+'/kg';cost=ctx.sw*amt}
+  else if(type==='fixed'){base='按票';unit=cur+'/票';cost=amt}
+  else if(type==='per_cbm'){if(!ctx.cbmV||ctx.cbmV<=0)throw Error((name||code)+' 按 CBM 计费需要总体积');base=ctx.cbmV.toFixed(4)+' m³';unit=cur+'/m³';cost=ctx.cbmV*amt}
+  else if(type==='percent'){base=cur+' '+ctx.mainCost.toFixed(2);unit='%';cost=ctx.mainCost*amt/100}
+  else if(type==='manual'){base='手动';unit=cur;cost=amt;notes.push((name||code)+' 为手动费用，需人工确认')}
+  else if(type==='min_charge'){if(!ctx.sw)throw Error((name||code)+' 最低收费需要结算计费重');base=ctx.sw.toFixed(1)+' kg';unit=cur+'/kg';cost=Math.max(ctx.sw*amt,min)}
+  cost=+cost.toFixed(2);total+=cost;rows.push({code,name,type,amount:amt,min,base,unit,cost,enabled:true});
+}
+return{total:+total.toFixed(2),items:rows,notes}}
+
 function bestForWeight(rc,rs,ap){let nat=getNat(rc,rs);if(!nat)throw Error('价格表中无可用重量段');
 let cs=genCands(rc,rs,nat.n,ap);if(!cs.length)throw Error('无法生成有效方案');
 cs.sort((a,b)=>{if(a.cost!==b.cost)return a.cost-b.cost;return a.pv?1:-1});cs.forEach(c=>c.rec=false);cs[0].rec=true;return{nat,cs,rec:cs[0]}}
@@ -480,6 +517,8 @@ let best=bestForWeight(rc,rs,ap),nat=best.nat,cs=best.cs,rec=best.rec;
 let stdRc=roundWt(stdRw,rr),stdBest=splitActive?bestForWeight(stdRc,rs,ap):null;
 let saveWeight=splitActive?Math.max(0,stdRw-splitRw):0;
 let saveCost=splitActive&&stdBest?Math.max(0,stdBest.rec.cost-rec.cost):0;
+let feeCalc=calcFees(pr.fees||[],{sw:rec.sw,cbmV,mainCost:rec.cost},pr.cur||'CNY');
+let feeTotal=feeCalc.total,totalCost=+(rec.cost+feeTotal).toFixed(2);
 let cfMap={dimension_based:'高',cbm_based:'中',weight_only_estimate:'低'},cf=cfMap[cm];
 let rm=[];
 if(cm==='weight_only_estimate')rm.push('仅按实重预估，缺少尺寸和 CBM 数据，最终计费重可能变化');else rm.push('已根据体积信息完成计算');
@@ -487,10 +526,12 @@ if(rec.pv)rm.push('靠级至 '+rec.tier+' 段后成本更低，自然段为 '+na
 if(br!=null&&br>1)rm.push('货物为泡货（泡比 '+br.toFixed(2)+'），体积重主导计费');
 if(splitActive)rm.push('已启用分泡计费，承担泡重 '+(sr*100).toFixed(0)+'%，节省计费重 '+saveWeight.toFixed(1)+' kg，节省成本 '+(pr.cur||'CNY')+' '+saveCost.toFixed(2));
 else if(splitEnabled)rm.push('已启用分泡，但当前没有泡重，分泡未生效');
+if(feeTotal>0)rm.push('已计入附加费用 '+(pr.cur||'CNY')+' '+feeTotal.toFixed(2)+'，最终总成本为 '+(pr.cur||'CNY')+' '+totalCost.toFixed(2));
+for(let n of feeCalc.notes)rm.push(n);
 let ncs=cs.filter(c=>!c.pv);if(rec.pv&&ncs.length){let s=ncs[0].cost-rec.cost;if(s>0)rm.push('靠级节省 '+(pr.cur||'CNY')+' '+s.toFixed(0)+'，建议与航司确认靠级可行性')}
 if(cs.length>=2){let d=cs[1].cost-cs[0].cost;if(d>0&&d<10)rm.push('备选方案 '+cs[1].tier+' 段成本仅差 '+(pr.cur||'CNY')+' '+d.toFixed(1)+'，可灵活选择')}
 if(pr.valid)rm.push('报价有效期至 '+pr.valid+'，请在此日期前确认');
-return{cm,bf,rr,gw,cbmV,vw,br,rw:+rw.toFixed(2),rc,recTier:rec.tier,sw:rec.sw,rate:rec.up,cost:rec.cost,pv:rec.pv,cf,rm,cs,cur:pr.cur||'CNY',stdRw:+stdRw.toFixed(2),stdRc,bubbleWeight:+bubbleWeight.toFixed(2),splitEnabled:!!splitEnabled,splitActive,splitRatio:sr,splitRule:splitRule||'',splitRw:+splitRw.toFixed(2),saveWeight:+saveWeight.toFixed(2),saveCost:+saveCost.toFixed(2),stdCost:stdBest?stdBest.rec.cost:rec.cost}
+return{cm,bf,rr,gw,cbmV,vw,br,rw:+rw.toFixed(2),rc,recTier:rec.tier,sw:rec.sw,rate:rec.up,mainCost:rec.cost,feeTotal,cost:totalCost,pv:rec.pv,cf,rm,cs,cur:pr.cur||'CNY',fees:feeCalc.items,stdRw:+stdRw.toFixed(2),stdRc,bubbleWeight:+bubbleWeight.toFixed(2),splitEnabled:!!splitEnabled,splitActive,splitRatio:sr,splitRule:splitRule||'',splitRw:+splitRw.toFixed(2),saveWeight:+saveWeight.toFixed(2),saveCost:+saveCost.toFixed(2),stdCost:stdBest?stdBest.rec.cost:rec.cost}
 }
 </script>
 
@@ -501,6 +542,60 @@ return{cm,bf,rr,gw,cbmV,vw,br,rw:+rw.toFixed(2),rc,recTier:rec.tier,sw:rec.sw,ra
 let pCount=0,sVolMode='dims',cVolMode='dims';
 function pF(id){let v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v}
 function shErr(id,msg){let e=document.getElementById(id);e.textContent=msg;e.style.display='block'}
+const DEFAULT_FEES=[
+  {code:'TC',name:'处理费',type:'per_kg',amount:'',min:''},
+  {code:'FSC',name:'燃油附加费',type:'per_kg',amount:'',min:''},
+  {code:'SSC',name:'安检费',type:'per_kg',amount:'',min:''},
+  {code:'AWB',name:'运单费',type:'fixed',amount:'',min:''},
+  {code:'Handling',name:'操作费',type:'fixed',amount:'',min:''},
+  {code:'Doc',name:'文件费',type:'fixed',amount:'',min:''},
+  {code:'Customs',name:'报关费',type:'fixed',amount:'',min:''},
+  {code:'Pickup',name:'提货费',type:'fixed',amount:'',min:''},
+  {code:'Other',name:'其他费用',type:'manual',amount:'',min:''},
+];
+function feeTypeOptions(v){let ops=[['per_kg','按 kg'],['fixed','按票'],['per_cbm','按 CBM'],['percent','主运费 %'],['min_charge','最低收费'],['manual','手动总额']];
+  return ops.map(([k,t])=>`<option value="${k}" ${k===v?'selected':''}>${t}</option>`).join('')}
+function addFeeRow(listId,seed={}){
+  let list=document.getElementById(listId);if(!list)return;
+  let row=document.createElement('div');row.className='fee-row';
+  row.innerHTML=`<input class="fee-check" type="checkbox" ${seed.enabled?'checked':''}>
+    <input class="fee-code" value="${seed.code||''}" placeholder="代码">
+    <input class="fee-name" value="${seed.name||''}" placeholder="费用名称">
+    <select class="fee-type">${feeTypeOptions(seed.type||'fixed')}</select>
+    <input class="fee-amt" type="number" value="${seed.amount??''}" min="0" step="0.01" placeholder="单价/金额">
+    <input class="fee-min" type="number" value="${seed.min??''}" min="0" step="0.01" placeholder="最低收费">
+    <button class="fee-del" type="button">×</button>`;
+  row.querySelector('.fee-del').addEventListener('click',()=>row.remove());
+  list.appendChild(row);
+}
+function initDefaultFees(listId){let list=document.getElementById(listId);if(!list||list.children.length)return;DEFAULT_FEES.forEach(f=>addFeeRow(listId,f))}
+function readFees(enabledId,listId){
+  let enabled=!!document.getElementById(enabledId)?.checked;if(!enabled)return[];
+  return[...document.querySelectorAll('#'+listId+' .fee-row')].map(r=>({
+    enabled:r.querySelector('.fee-check').checked,
+    code:r.querySelector('.fee-code').value,
+    name:r.querySelector('.fee-name').value,
+    type:r.querySelector('.fee-type').value,
+    amount:r.querySelector('.fee-amt').value,
+    min:r.querySelector('.fee-min').value
+  }));
+}
+function bindFeeControls(enabledId,boxId,listId){
+  let chk=document.getElementById(enabledId),box=document.getElementById(boxId);if(!chk||!box)return;
+  chk.addEventListener('change',()=>{box.style.display=chk.checked?'block':'none';if(chk.checked)initDefaultFees(listId)});
+  box.style.display=chk.checked?'block':'none';initDefaultFees(listId);
+}
+function copyFeeRows(fromListId,toListId){
+  let to=document.getElementById(toListId);if(!to)return;to.innerHTML='';
+  [...document.querySelectorAll('#'+fromListId+' .fee-row')].forEach(r=>addFeeRow(toListId,{
+    enabled:r.querySelector('.fee-check').checked,
+    code:r.querySelector('.fee-code').value,
+    name:r.querySelector('.fee-name').value,
+    type:r.querySelector('.fee-type').value,
+    amount:r.querySelector('.fee-amt').value,
+    min:r.querySelector('.fee-min').value
+  }));
+}
 
 // Mode switch
 document.getElementById('modeSeg').addEventListener('click',e=>{
@@ -544,6 +639,8 @@ function readSplitConfig(checkId,ruleId,customId){
 }
 bindSplitControls('sSplit','sSplitOpts','sSplitRule','sSplitCustom');
 bindSplitControls('cSplit','cSplitOpts','cSplitRule','cSplitCustom');
+bindFeeControls('sFeeEnable','sFeeBox','sFeeList');
+document.getElementById('sFeeAdd').addEventListener('click',()=>addFeeRow('sFeeList',{enabled:true,type:'fixed'}));
 
 // Single mode calc
 document.getElementById('sBtn').addEventListener('click',()=>{
@@ -560,6 +657,7 @@ document.getElementById('sBtn').addEventListener('click',()=>{
       rr:document.getElementById('sRr').value,ap:document.getElementById('sAp').checked,
       cur:document.getElementById('sCur').value,valid:document.getElementById('sVal').value||null,
       ...sp,
+      fees:readFees('sFeeEnable','sFeeList'),
       rs:{_min:pF('sMin'),_n:pF('sN'),_45:pF('s45'),_100:pF('s100'),_300:pF('s300'),_500:pF('s500'),_1000:pF('s1000')}
     });
     document.getElementById('sResults').innerHTML=renderSingle(r);
@@ -586,6 +684,11 @@ function addCard(){
       <div id="pSplitOpts-${id}" style="display:none;margin-top:10px">
         <div class="fr"><div class="fg"><span class="lbl">分泡规则</span><select id="pSplitRule-${id}"><option value="0.5">五五分泡（50%）</option><option value="0.4">四六分泡（40%）</option><option value="0.3">三七分泡（30%）</option><option value="custom">自定义比例</option></select></div><div class="fg"><span class="lbl">自定义承担比例 (%)</span><input type="number" id="pSplitCustom-${id}" value="50" min="0" max="100" step="1"></div></div>
       </div>
+      <div class="sw-row"><label class="sw"><input type="checkbox" id="pFeeEnable-${id}"><span class="sw-s"></span></label><span class="lbl">启用附加费用</span></div>
+      <div id="pFeeBox-${id}" style="display:none">
+        <div class="fee-list" id="pFeeList-${id}"></div>
+        <button class="btn-sm btn-sub" onclick="addFeeRow('pFeeList-${id}')" style="margin-top:10px">新增费用项</button>
+      </div>
       <div class="hr"></div>
       <div class="fst"><div class="h3">重量段价格</div></div>
       <div class="rate-grid">
@@ -608,6 +711,7 @@ function addCard(){
   }
   bindSplitControls('pSplit-'+id,'pSplitOpts-'+id,'pSplitRule-'+id,'pSplitCustom-'+id);
   setSplitVisibility('pSplit-'+id,'pSplitOpts-'+id,'pSplitRule-'+id,'pSplitCustom-'+id);
+  bindFeeControls('pFeeEnable-'+id,'pFeeBox-'+id,'pFeeList-'+id);
   setTimeout(()=>{setupAutocomplete('pOri-'+id);setupAutocomplete('pDst-'+id)},50);
 }
 
@@ -615,15 +719,17 @@ function delCard(id){document.getElementById('pcard-'+id)?.remove()}
 
 function copyCard(id){
   addCard();let nid=pCount,oid=id;
-  ['Name','Air','Time','Cur','Ori','Dst','Val','Bf','Rr','Ap','Split','SplitRule','SplitCustom'].forEach(k=>{
+  ['Name','Air','Time','Cur','Ori','Dst','Val','Bf','Rr','Ap','Split','SplitRule','SplitCustom','FeeEnable'].forEach(k=>{
     let os=document.getElementById('p'+k+'-'+oid),ns=document.getElementById('p'+k+'-'+nid);
-    if(os&&ns){if(k==='Ap'||k==='Split')ns.checked=os.checked;else ns.value=os.value}
+    if(os&&ns){if(k==='Ap'||k==='Split'||k==='FeeEnable')ns.checked=os.checked;else ns.value=os.value}
   });
   setSplitVisibility('pSplit-'+nid,'pSplitOpts-'+nid,'pSplitRule-'+nid,'pSplitCustom-'+nid);
+  document.getElementById('pFeeBox-'+nid).style.display=document.getElementById('pFeeEnable-'+nid).checked?'block':'none';
   ['Min','N','45','100','300','500','1000'].forEach(k=>{
     let os=document.getElementById('p'+k+'-'+oid),ns=document.getElementById('p'+k+'-'+nid);
     if(os&&ns)ns.value=os.value;
   });
+  copyFeeRows('pFeeList-'+oid,'pFeeList-'+nid);
 }
 
 function clearRates(id){['Min','N','45','100','300','500','1000'].forEach(k=>{let el=document.getElementById('p'+k+'-'+id);if(el)el.value=''})}
@@ -672,6 +778,7 @@ document.getElementById('cBtn').addEventListener('click',()=>{
         rr:document.getElementById('pRr-'+i)?.value||drr,
         ap:document.getElementById('pAp-'+i)?.checked,
         ...sp,
+        fees:readFees('pFeeEnable-'+i,'pFeeList-'+i),
         rates:{_min:pF2('pMin-'+i),_n:pF2('pN-'+i),_45:pF2('p45-'+i),_100:pF2('p100-'+i),_300:pF2('p300-'+i),_500:pF2('p500-'+i),_1000:pF2('p1000-'+i)}
       });
     }
@@ -680,7 +787,7 @@ document.getElementById('cBtn').addEventListener('click',()=>{
     let items=[],currencies=new Set();
     for(let p of providers){
       try{
-        let r=estimate({gw,vm:cVolMode,pc,lc,wc,hc,cbm,bf:p.bf,rr:p.rr,ap:p.ap,cur:p.currency,valid:p.validUntil,splitEnabled:p.splitEnabled,splitRatio:p.splitRatio,splitRule:p.splitRule,rs:p.rates});
+        let r=estimate({gw,vm:cVolMode,pc,lc,wc,hc,cbm,bf:p.bf,rr:p.rr,ap:p.ap,cur:p.currency,valid:p.validUntil,splitEnabled:p.splitEnabled,splitRatio:p.splitRatio,splitRule:p.splitRule,fees:p.fees,rs:p.rates});
         currencies.add(p.currency);items.push({...p,result:r});
       }catch(e){items.push({...p,error:e.message})}
     }
@@ -694,6 +801,7 @@ document.getElementById('cBtn').addEventListener('click',()=>{
 });
 
 function pF2(id){let el=document.getElementById(id);if(!el)return null;let v=parseFloat(el.value);return isNaN(v)?null:v}
+function feeTypeText(t){return{per_kg:'按 kg',fixed:'按票',per_cbm:'按 CBM',percent:'主运费 %',min_charge:'最低收费',manual:'手动总额'}[t]||t}
 function _sortByCur(items){let g={};for(let i of items){let c=i.result?.currency||i.currency||'';if(!g[c])g[c]=[];g[c].push(i)}
 for(let k in g)g[k].sort((a,b)=>(a.result?.cost||0)-(b.result?.cost||0));
 let res=[],max=Math.max(...Object.values(g).map(a=>a.length)),ks=Object.keys(g).sort();
@@ -701,10 +809,14 @@ for(let i=0;i<max;i++)for(let k of ks)if(i<g[k].length)res.push(g[k][i]);items.s
 function _genLbls(items,cc){
   if(!items.length)return;
   let bc=[...items].filter(i=>!i.error).sort((a,b)=>a.result.cost-b.result.cost);
+  let bm=[...items].filter(i=>!i.error).sort((a,b)=>a.result.mainCost-b.result.mainCost);
+  let bf=[...items].filter(i=>!i.error).sort((a,b)=>a.result.feeTotal-b.result.feeTotal);
   let bn=[...items].filter(i=>!i.error&&!i.result.pv).sort((a,b)=>a.result.cost-b.result.cost);
   let bt=[...items].filter(i=>!i.error&&i.transitTime!=null).sort((a,b)=>(a.transitTime||999)-(b.transitTime||999));
-  if(bc.length)bc[0].label='最低成本方案';
-  if(bn.length&&bn[0]!==bc[0])bn[0].label='自然段最低方案';
+  if(bc.length)bc[0].label='最低总成本方案';
+  if(bm.length&&bm[0]!==bc[0]&&!bm[0].label)bm[0].label='最低主运费方案';
+  if(bf.length&&bf[0]!==bc[0]&&!bf[0].label)bf[0].label='最低附加费用方案';
+  if(bn.length&&bn[0]!==bc[0]&&!bn[0].label)bn[0].label='自然段最低方案';
   for(let i of items){if(i.error||i.label)continue;if(i.result.pv){let nc=i.result.cs.filter(c=>!c.pv);if(nc.length&&nc[0].cost>0){let pct=(nc[0].cost-i.result.cost)/nc[0].cost*100;if(pct>10){i.label='靠级节省方案';break}}}}
   for(let i of items){if(i.error||i.label)continue;if(i.result.splitActive&&i.result.saveCost>0){i.label='分泡节省方案';break}}
   if(bt.length&&cc&&bt[0]!==bc[0]&&!bt[0].label)bt[0].label='时效较快';
@@ -716,7 +828,9 @@ function renderSingle(r){
   let mm={dimension_based:'精确尺寸',cbm_based:'总体积',weight_only_estimate:'仅实重'};
   let costEl=`
     <div class="sc-grid">
-      <div class="sc hl"><div class="scl">空运成本</div><div class="val">${r.cur} ${r.cost.toFixed(2)}</div></div>
+      <div class="sc hl"><div class="scl">最终总成本</div><div class="val">${r.cur} ${r.cost.toFixed(2)}</div></div>
+      <div class="sc"><div class="scl">主运费</div><div class="val">${r.cur} ${r.mainCost.toFixed(2)}</div></div>
+      <div class="sc"><div class="scl">附加费用</div><div class="val">${r.cur} ${r.feeTotal.toFixed(2)}</div></div>
       <div class="sc"><div class="scl">推荐重量段</div><div class="val">${r.recTier}</div></div>
       <div class="sc"><div class="scl">结算计费重</div><div class="val">${r.sw.toFixed(1)}<span class="scu"> kg</span></div></div>
       <div class="sc"><div class="scl">适用单价</div><div class="val">${r.recTier==='Min'?r.cur+' '+r.rate.toFixed(2):r.cur+' '+r.rate.toFixed(2)}<span class="scu">${r.recTier==='Min'?'/票':'/kg'}</span></div></div>
@@ -744,15 +858,25 @@ function renderSingle(r){
     ${r.cs.map(c=>`<tr class="${c.rec?'rec':''}"><td>${c.tier}</td><td>${c.th!=null?'&ge; '+c.th+' kg':'—'}</td><td>${c.sw.toFixed(1)} kg</td><td>${c.tier==='Min'?r.cur+' '+c.up.toFixed(2)+'/票':r.cur+' '+c.up.toFixed(2)+'/kg'}</td><td>${r.cur} ${c.cost.toFixed(2)}</td><td>${c.pv?'<span class="badge bd-pv">靠级</span>':(c.tier!=='Min'?'<span class="badge bd-na">自然段</span>':'—')}</td><td>${c.rec?'<span class="badge bd-rec">推荐</span>':'—'}</td></tr>`).join('')}
   </tbody></table></div></div>`;
 
+  let feeTable='';if(r.fees.length){feeTable=`<div class="card"><div class="ch"><div class="h2">附加费用明细</div></div><div class="tbl-wrap"><table><thead><tr><th>费用名称</th><th>代码</th><th>计费方式</th><th>计费基数</th><th>单价 / 金额</th><th>最低收费</th><th>费用小计</th></tr></thead><tbody>
+    ${r.fees.map(f=>`<tr><td>${f.name||'—'}</td><td>${f.code||'—'}</td><td>${feeTypeText(f.type)}</td><td>${f.base}</td><td>${f.type==='percent'?f.amount.toFixed(2)+'%':r.cur+' '+f.amount.toFixed(2)}</td><td>${f.min?r.cur+' '+f.min.toFixed(2):'—'}</td><td>${r.cur} ${f.cost.toFixed(2)}</td></tr>`).join('')}
+    <tr class="rec"><td colspan="6">附加费用合计</td><td>${r.cur} ${r.feeTotal.toFixed(2)}</td></tr>
+  </tbody></table></div></div>`}
+
   let bar=`<div class="card"><div class="ch"><div class="h2">成本对比</div></div><div class="cb"><div class="bar-chart">
     ${(()=>{let m=Math.max(...r.cs.map(c=>c.cost),1);return r.cs.map(c=>{let p=c.cost/m*100,cl=c.rec?'rc':(c.pv?'pv':'na');return`<div class="br"><div class="bl">${c.tier}</div><div class="bt"><div class="bf ${cl}" style="width:${p}%">${p>25?`<span class="bv">${r.cur} ${c.cost.toFixed(0)}</span>`:''}</div></div><div class="bc">${r.cur} ${c.cost.toFixed(2)}</div></div>`}).join('')})()}
   </div></div></div>`;
+
+  let splitCost='';if(r.feeTotal>0){let max=Math.max(r.mainCost,r.feeTotal,1);splitCost=`<div class="card"><div class="ch"><div class="h2">成本拆分</div></div><div class="cb"><div class="bar-chart">
+    <div class="br"><div class="bl">主运费</div><div class="bt"><div class="bf rc" style="width:${r.mainCost/max*100}%"><span class="bv">${r.cur} ${r.mainCost.toFixed(0)}</span></div></div><div class="bc">${r.cur} ${r.mainCost.toFixed(2)}</div></div>
+    <div class="br"><div class="bl">附加费</div><div class="bt"><div class="bf pv" style="width:${r.feeTotal/max*100}%"><span class="bv">${r.cur} ${r.feeTotal.toFixed(0)}</span></div></div><div class="bc">${r.cur} ${r.feeTotal.toFixed(2)}</div></div>
+  </div></div></div>`}
 
   let notes='';if(r.rm.length){notes=`<div class="card"><div class="ch"><div class="h2">备注与提醒</div></div><div class="cb"><ul class="nl">${r.rm.map(n=>{let cl='nt-info';
     if(n.startsWith('靠级节省')||n.startsWith('已启用分泡计费'))cl='nt-ok';else if(n.includes('泡货')||n.includes('分泡未生效'))cl='nt-warn';else if(n.startsWith('已根据'))cl='nt-ok';
     return`<li class="${cl}">${n}</li>`}).join('')}</ul></div></div>`}
 
-  return costEl+infoBar+splitSummary+table+bar+notes;
+  return costEl+infoBar+splitSummary+table+feeTable+bar+splitCost+notes;
 }
 
 // Render compare results
@@ -765,7 +889,9 @@ function renderCompare(cr){
     let pvSave=vi.filter(i=>i.result.pv&&i.label==='靠级节省方案')[0];
     summary=`<div class="cmp-sum">
       <div class="sc hl"><div class="scl">最低成本服务商</div><div class="val-sm">${minC.name}</div></div>
-      <div class="sc hl"><div class="scl">最低成本</div><div class="val-sm">${minC.result.cur} ${minC.result.cost.toFixed(2)}</div></div>
+      <div class="sc hl"><div class="scl">最终总成本</div><div class="val-sm">${minC.result.cur} ${minC.result.cost.toFixed(2)}</div></div>
+      <div class="sc"><div class="scl">主运费</div><div class="val-sm">${minC.result.cur} ${minC.result.mainCost.toFixed(2)}</div></div>
+      <div class="sc"><div class="scl">附加费用</div><div class="val-sm">${minC.result.cur} ${minC.result.feeTotal.toFixed(2)}</div></div>
       <div class="sc"><div class="scl">推荐重量段</div><div class="val-sm">${minC.result.recTier}</div></div>
       <div class="sc"><div class="scl">结算计费重</div><div class="val-sm">${minC.result.sw.toFixed(1)} kg</div></div>
       <div class="sc"><div class="scl">服务商数量</div><div class="val-sm">${vi.length}</div></div>
@@ -773,22 +899,23 @@ function renderCompare(cr){
   }
 
   let rows=cr.items.map(i=>{
-    if(i.error)return`<tr><td>—</td><td>${i.name}</td><td>${i.airline}</td><td colspan="12" style="color:var(--da)">${i.error}</td></tr>`;
+    if(i.error)return`<tr><td>—</td><td>${i.name}</td><td>${i.airline}</td><td colspan="14" style="color:var(--da)">${i.error}</td></tr>`;
     let r=i.result,rc=i.rank===1?'rank-1':(i.rank===2?'rank-2':(i.rank===3?'rank-3':''));
-    let lbl='';if(i.label){let ls=i.label==='最低成本方案'?'bd-lo':(i.label==='自然段最低方案'?'bd-na':(i.label==='靠级节省方案'||i.label==='分泡节省方案'?'bd-pv':'bd-fa'));lbl=`<span class="badge ${ls}">${i.label}</span>`}
+    let lbl='';if(i.label){let ls=i.label==='最低总成本方案'?'bd-lo':(i.label==='自然段最低方案'?'bd-na':(i.label==='靠级节省方案'||i.label==='分泡节省方案'?'bd-pv':'bd-fa'));lbl=`<span class="badge ${ls}">${i.label}</span>`}
     let splitBadge=r.splitActive?'<span class="badge bd-pv">是</span>':(r.splitEnabled?'<span class="badge bd-info">未生效</span>':'<span class="badge bd-na">否</span>');
     let note=r.rm.slice(-2).join('；');
-    return`<tr class="${i.rank===1?'rec':''}"><td class="rank-col" style="font-weight:700;color:${i.rank===1?'var(--ac)':i.rank===2?'var(--t2)':'var(--t2)'}">${i.rank}</td><td>${i.name}</td><td>${i.airline}</td><td>${r.recTier}</td><td>${r.sw.toFixed(1)} kg</td><td>${r.cur} ${r.rate.toFixed(2)}/${r.recTier==='Min'?'票':'kg'}</td><td>${r.cur} ${r.cost.toFixed(2)}</td><td>${r.pv?'<span class="badge bd-pv">是</span>':'<span class="badge bd-na">否</span>'}</td><td>${splitBadge}</td><td>${r.splitEnabled?(r.splitRatio*100).toFixed(0)+'%':'—'}</td><td>${r.cur} ${r.saveCost.toFixed(2)}</td><td>${i.transitTime!=null?i.transitTime+' 天':'—'}</td><td>${lbl}</td><td>${note}</td></tr>`;
+    let bubbleInfo=`${r.vw!=null?r.vw.toFixed(1)+' kg':'—'} / ${r.br!=null?r.br.toFixed(2):'—'}`;
+    return`<tr class="${i.rank===1?'rec':''}"><td class="rank-col" style="font-weight:700;color:${i.rank===1?'var(--ac)':i.rank===2?'var(--t2)':'var(--t2)'}">${i.rank}</td><td>${i.name}</td><td>${i.airline}</td><td>${r.recTier}</td><td>${r.sw.toFixed(1)} kg</td><td>${r.bf}</td><td>${bubbleInfo}</td><td>${r.cur} ${r.mainCost.toFixed(2)}</td><td>${r.cur} ${r.feeTotal.toFixed(2)}</td><td>${r.cur} ${r.cost.toFixed(2)}</td><td>${r.pv?'<span class="badge bd-pv">是</span>':'<span class="badge bd-na">否</span>'}</td><td>${splitBadge}</td><td>${r.splitEnabled?(r.splitRatio*100).toFixed(0)+'%':'—'}</td><td>${r.cur} ${r.saveCost.toFixed(2)}</td><td>${i.transitTime!=null?i.transitTime+' 天':'—'}</td><td>${lbl}</td><td>${note}</td></tr>`;
   }).join('');
 
-  let table=`<div class="card"><div class="ch"><div class="h2">比价排名</div></div><div class="tbl-wrap"><table><thead><tr><th>排名</th><th>服务商</th><th>航司 / 渠道</th><th>重量段</th><th>结算重</th><th>单价</th><th>空运成本</th><th>靠级</th><th>分泡</th><th>分泡比例</th><th>节省成本</th><th>时效</th><th>推荐标签</th><th>备注</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  let table=`<div class="card"><div class="ch"><div class="h2">比价排名</div></div><div class="tbl-wrap"><table><thead><tr><th>排名</th><th>服务商</th><th>航司 / 渠道</th><th>重量段</th><th>结算重</th><th>计费系数</th><th>体积重 / 泡比</th><th>主运费</th><th>附加费</th><th>总成本</th><th>靠级</th><th>分泡</th><th>分泡比例</th><th>节省成本</th><th>时效</th><th>推荐标签</th><th>备注</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 
-  let bar='';if(vi.length>1){bar=`<div class="card"><div class="ch"><div class="h2">成本对比</div></div><div class="cb"><div class="bar-chart">
+  let bar='';if(vi.length>1){bar=`<div class="card"><div class="ch"><div class="h2">总成本对比</div></div><div class="cb"><div class="bar-chart">
     ${(()=>{let m=Math.max(...vi.map(i=>i.result.cost),1);return vi.map((i,idx)=>{let p=i.result.cost/m*100,cl=idx===0?'rc':'na';return`<div class="br"><div class="bl">${i.name.substring(0,8)}</div><div class="bt"><div class="bf ${cl}" style="width:${p}%">${p>25?`<span class="bv">${i.result.cur} ${i.result.cost.toFixed(0)}</span>`:''}</div></div><div class="bc">${i.result.cur} ${i.result.cost.toFixed(2)}</div></div>`}).join('')})()}
   </div></div></div>`}
 
-  let detail='';if(vi.length){detail=`<div class="card"><div class="ch"><div class="h2">服务商候选方案</div></div><div class="cb">
-    ${vi.map(i=>`<details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:13px;font-weight:600">${i.name} · ${i.result.cur} ${i.result.cost.toFixed(2)}</summary><div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>重量段</th><th>段阈值</th><th>结算重量</th><th>单价</th><th>成本</th><th>段类型</th><th>推荐</th></tr></thead><tbody>${i.result.cs.map(c=>`<tr class="${c.rec?'rec':''}"><td>${c.tier}</td><td>${c.th!=null?'&ge; '+c.th+' kg':'—'}</td><td>${c.sw.toFixed(1)} kg</td><td>${c.tier==='Min'?i.result.cur+' '+c.up.toFixed(2)+'/票':i.result.cur+' '+c.up.toFixed(2)+'/kg'}</td><td>${i.result.cur} ${c.cost.toFixed(2)}</td><td>${c.pv?'<span class="badge bd-pv">靠级</span>':'<span class="badge bd-na">自然段</span>'}</td><td>${c.rec?'<span class="badge bd-rec">推荐</span>':'—'}</td></tr>`).join('')}</tbody></table></div></details>`).join('')}
+  let detail='';if(vi.length){detail=`<div class="card"><div class="ch"><div class="h2">服务商费用展开明细</div></div><div class="cb">
+    ${vi.map(i=>`<details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:13px;font-weight:600">${i.name} · 总成本 ${i.result.cur} ${i.result.cost.toFixed(2)} · 主运费 ${i.result.cur} ${i.result.mainCost.toFixed(2)} · 附加费 ${i.result.cur} ${i.result.feeTotal.toFixed(2)}</summary><div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>重量段</th><th>段阈值</th><th>结算重量</th><th>单价</th><th>主运费成本</th><th>段类型</th><th>推荐</th></tr></thead><tbody>${i.result.cs.map(c=>`<tr class="${c.rec?'rec':''}"><td>${c.tier}</td><td>${c.th!=null?'&ge; '+c.th+' kg':'—'}</td><td>${c.sw.toFixed(1)} kg</td><td>${c.tier==='Min'?i.result.cur+' '+c.up.toFixed(2)+'/票':i.result.cur+' '+c.up.toFixed(2)+'/kg'}</td><td>${i.result.cur} ${c.cost.toFixed(2)}</td><td>${c.pv?'<span class="badge bd-pv">靠级</span>':'<span class="badge bd-na">自然段</span>'}</td><td>${c.rec?'<span class="badge bd-rec">推荐</span>':'—'}</td></tr>`).join('')}</tbody></table></div>${i.result.fees.length?`<div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>费用名称</th><th>代码</th><th>计费方式</th><th>计费基数</th><th>费用小计</th></tr></thead><tbody>${i.result.fees.map(f=>`<tr><td>${f.name||'—'}</td><td>${f.code||'—'}</td><td>${feeTypeText(f.type)}</td><td>${f.base}</td><td>${i.result.cur} ${f.cost.toFixed(2)}</td></tr>`).join('')}</tbody></table></div>`:''}</details>`).join('')}
   </div></div>`}
 
   return curWarn+summary+table+bar+detail;
