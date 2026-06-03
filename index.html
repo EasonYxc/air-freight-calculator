@@ -207,7 +207,7 @@ tbody tr.rec{background:var(--acl)}tbody tr.rec td{font-weight:600}
 <!-- ======== HEADER ======== -->
 <div class="header">
   <div class="h1">空运重量段成本预估器</div>
-  <div class="sub">单服务商计算 &middot; 多服务商比价 &middot; 重量段成本分析</div>
+  <div class="sub">单服务商计算 &middot; 多服务商比价 &middot; 泡比反推 &middot; 重量段成本分析</div>
 </div>
 
 <!-- Mode Segment Control -->
@@ -244,10 +244,12 @@ tbody tr.rec{background:var(--acl)}tbody tr.rec td{font-weight:600}
       <div class="tg" id="sVolToggle">
         <button class="tg-btn active" data-vm="dims">尺寸模式</button>
         <button class="tg-btn" data-vm="cbm">CBM 模式</button>
+        <button class="tg-btn" data-vm="ratio">泡比模式</button>
         <button class="tg-btn" data-vm="none">仅实重</button>
       </div>
       <div id="sDims"><div class="fr fr3"><div class="fg"><span class="lbl">长 L (cm)</span><input type="number" id="sL" placeholder="120" step="0.1"></div><div class="fg"><span class="lbl">宽 W (cm)</span><input type="number" id="sW" placeholder="80" step="0.1"></div><div class="fg"><span class="lbl">高 H (cm)</span><input type="number" id="sH" placeholder="60" step="0.1"></div></div></div>
       <div id="sCbm" style="display:none"><div class="fg"><span class="lbl">总体积 (m&sup3;)</span><input type="number" id="sCbmV" placeholder="1.5" step="0.001"></div></div>
+      <div id="sRatio" style="display:none"><div class="fg"><span class="lbl">泡比（体积重 ÷ 实重）</span><input type="number" id="sBrInput" placeholder="2.4" step="0.01" min="0.01"><span class="hint">系统将反推体积重和 CBM</span></div></div>
     </div>
   </div>
 
@@ -320,10 +322,12 @@ tbody tr.rec{background:var(--acl)}tbody tr.rec td{font-weight:600}
         <div class="tg" id="cVolToggle">
           <button class="tg-btn active" data-vm="dims">尺寸模式</button>
           <button class="tg-btn" data-vm="cbm">CBM 模式</button>
+          <button class="tg-btn" data-vm="ratio">泡比模式</button>
           <button class="tg-btn" data-vm="none">仅实重</button>
         </div>
         <div id="cDims"><div class="fr fr3"><div class="fg"><span class="lbl">长 L (cm)</span><input type="number" id="cL" placeholder="120" step="0.1"></div><div class="fg"><span class="lbl">宽 W (cm)</span><input type="number" id="cW" placeholder="80" step="0.1"></div><div class="fg"><span class="lbl">高 H (cm)</span><input type="number" id="cH" placeholder="60" step="0.1"></div></div></div>
         <div id="cCbm" style="display:none"><div class="fg"><span class="lbl">总体积 (m&sup3;)</span><input type="number" id="cCbmV" placeholder="1.5" step="0.001"></div></div>
+        <div id="cRatio" style="display:none"><div class="fg"><span class="lbl">泡比（体积重 ÷ 实重）</span><input type="number" id="cBrInput" placeholder="2.4" step="0.01" min="0.01"><span class="hint">不同服务商会按各自计费系数反推 CBM</span></div></div>
       </div>
       <div>
         <div class="fst"><div class="h3">默认计算规则</div></div>
@@ -467,6 +471,7 @@ function setupAutocomplete(inputId){
 const D=6000;
 function dimsMode(p,l,w,h,g,bf){let t=p*l*w*h;return{cbm:+(t/1e6).toFixed(6),vw:+(t/bf).toFixed(2),rc:Math.max(g,t/bf)}}
 function cbmMode(c,g,bf){let v=c*1e6/bf;return{vw:+v.toFixed(2),rc:Math.max(g,v)}}
+function ratioMode(g,br,bf){let vw=g*br,cbm=vw*bf/1e6;return{cbm:+cbm.toFixed(6),vw:+vw.toFixed(2),rc:Math.max(g,vw)}}
 function roundWt(w,r){if(r==='ceil_1kg')return Math.ceil(w);if(r==='ceil_0.5kg')return Math.ceil(w*2)/2;return w}
 function getNat(rc,rs){let ck=[{n:'+1000',t:1000,p:rs._1000},{n:'+500',t:500,p:rs._500},{n:'+300',t:300,p:rs._300},{n:'+100',t:100,p:rs._100},{n:'+45',t:45,p:rs._45}];
 for(let c of ck)if(c.p!=null&&rc>=c.t)return c;if(rs._n!=null)return{n:'N',t:null,p:rs._n};if(rs._45!=null)return{n:'+45',t:45,p:rs._45};return null}
@@ -497,12 +502,13 @@ return{total:+total.toFixed(2),items:rows,notes}}
 function bestForWeight(rc,rs,ap){let nat=getNat(rc,rs);if(!nat)throw Error('价格表中无可用重量段');
 let cs=genCands(rc,rs,nat.n,ap);if(!cs.length)throw Error('无法生成有效方案');
 cs.sort((a,b)=>{if(a.cost!==b.cost)return a.cost-b.cost;return a.pv?1:-1});cs.forEach(c=>c.rec=false);cs[0].rec=true;return{nat,cs,rec:cs[0]}}
-function estimate(pr){let{gw,bf,pc,lc,wc,hc,cbm,rr,ap,rs,vm,splitEnabled,splitRatio,splitRule}=pr;if(!gw||gw<=0)throw Error('总实重必须大于 0');
+function estimate(pr){let{gw,bf,pc,lc,wc,hc,cbm,brInput,rr,ap,rs,vm,splitEnabled,splitRatio,splitRule}=pr;if(!gw||gw<=0)throw Error('总实重必须大于 0');
 if(!bf||bf<=0)throw Error('计费系数必须大于 0');
 let cm,cbmV=null,vw=null,stdRw;
 let hd=pc&&pc>0&&lc>0&&wc>0&&hc>0,hc2=cbm!=null&&cbm>0;
 if(vm==='dims'){if(!hd)throw Error('尺寸模式下件数、长、宽、高必须完整');cm='dimension_based';let d=dimsMode(pc,lc,wc,hc,gw,bf);cbmV=d.cbm;vw=d.vw;stdRw=d.rc}
 else if(vm==='cbm'){if(!hc2)throw Error('CBM 模式下总体积必须大于 0');cm='cbm_based';cbmV=cbm;let d=cbmMode(cbm,gw,bf);vw=d.vw;stdRw=d.rc}
+else if(vm==='ratio'){let bri=Number(brInput);if(!bri||bri<=0)throw Error('泡比模式下泡比必须大于 0');cm='ratio_based';let d=ratioMode(gw,bri,bf);cbmV=d.cbm;vw=d.vw;stdRw=d.rc}
 else if(vm==='none'){cm='weight_only_estimate';stdRw=gw}
 else if(hd){cm='dimension_based';let d=dimsMode(pc,lc,wc,hc,gw,bf);cbmV=d.cbm;vw=d.vw;stdRw=d.rc}
 else if(hc2){cm='cbm_based';cbmV=cbm;let d=cbmMode(cbm,gw,bf);vw=d.vw;stdRw=d.rc}
@@ -607,17 +613,18 @@ document.getElementById('modeSeg').addEventListener('click',e=>{
 });
 
 // Volume toggles
-function setupVolToggle(tgId,dimsId,cbmId,holder){
+function setupVolToggle(tgId,dimsId,cbmId,ratioId,holder){
   document.getElementById(tgId).addEventListener('click',e=>{
     let t=e.target;if(!t.classList.contains('tg-btn'))return;
     document.querySelectorAll('#'+tgId+' .tg-btn').forEach(b=>b.classList.remove('active'));t.classList.add('active');
     if(holder)holder.vm=t.dataset.vm;
     document.getElementById(dimsId).style.display=t.dataset.vm==='dims'?'block':'none';
     document.getElementById(cbmId).style.display=t.dataset.vm==='cbm'?'block':'none';
+    document.getElementById(ratioId).style.display=t.dataset.vm==='ratio'?'block':'none';
   });
 }
-setupVolToggle('sVolToggle','sDims','sCbm',{set vm(v){sVolMode=v},get vm(){return sVolMode}});
-setupVolToggle('cVolToggle','cDims','cCbm',{set vm(v){cVolMode=v},get vm(){return cVolMode}});
+setupVolToggle('sVolToggle','sDims','sCbm','sRatio',{set vm(v){sVolMode=v},get vm(){return sVolMode}});
+setupVolToggle('cVolToggle','cDims','cCbm','cRatio',{set vm(v){cVolMode=v},get vm(){return cVolMode}});
 
 function setSplitVisibility(checkId,optsId,ruleId,customId){
   let chk=document.getElementById(checkId),opts=document.getElementById(optsId),rule=document.getElementById(ruleId),custom=document.getElementById(customId);
@@ -653,6 +660,7 @@ document.getElementById('sBtn').addEventListener('click',()=>{
       pc:sVolMode==='dims'?(parseInt(document.getElementById('sPcs').value)||null):null,
       lc:sVolMode==='dims'?(parseFloat(document.getElementById('sL').value)||0):0,wc:sVolMode==='dims'?(parseFloat(document.getElementById('sW').value)||0):0,hc:sVolMode==='dims'?(parseFloat(document.getElementById('sH').value)||0):0,
       cbm:sVolMode==='cbm'?(parseFloat(document.getElementById('sCbmV').value)||null):null,
+      brInput:sVolMode==='ratio'?(parseFloat(document.getElementById('sBrInput').value)||null):null,
       bf:parseFloat(document.getElementById('sBf').value)||D,
       rr:document.getElementById('sRr').value,ap:document.getElementById('sAp').checked,
       cur:document.getElementById('sCur').value,valid:document.getElementById('sVal').value||null,
@@ -760,6 +768,7 @@ document.getElementById('cBtn').addEventListener('click',()=>{
     let pc=cVolMode==='dims'?(parseInt(document.getElementById('cPcs').value)||null):null;
     let lc=cVolMode==='dims'?(parseFloat(document.getElementById('cL').value)||0):0,wc=cVolMode==='dims'?(parseFloat(document.getElementById('cW').value)||0):0,hc=cVolMode==='dims'?(parseFloat(document.getElementById('cH').value)||0):0;
     let cbm=cVolMode==='cbm'?(parseFloat(document.getElementById('cCbmV').value)||null):null;
+    let brInput=cVolMode==='ratio'?(parseFloat(document.getElementById('cBrInput').value)||null):null;
     let dbf=parseFloat(document.getElementById('cBf').value)||D,drr=document.getElementById('cRr').value,dap=document.getElementById('cAp').checked;
 
     let providers=[];
@@ -787,7 +796,7 @@ document.getElementById('cBtn').addEventListener('click',()=>{
     let items=[],currencies=new Set();
     for(let p of providers){
       try{
-        let r=estimate({gw,vm:cVolMode,pc,lc,wc,hc,cbm,bf:p.bf,rr:p.rr,ap:p.ap,cur:p.currency,valid:p.validUntil,splitEnabled:p.splitEnabled,splitRatio:p.splitRatio,splitRule:p.splitRule,fees:p.fees,rs:p.rates});
+        let r=estimate({gw,vm:cVolMode,pc,lc,wc,hc,cbm,brInput,bf:p.bf,rr:p.rr,ap:p.ap,cur:p.currency,valid:p.validUntil,splitEnabled:p.splitEnabled,splitRatio:p.splitRatio,splitRule:p.splitRule,fees:p.fees,rs:p.rates});
         currencies.add(p.currency);items.push({...p,result:r});
       }catch(e){items.push({...p,error:e.message})}
     }
@@ -825,7 +834,7 @@ function _genLbls(items,cc){
 // Render single results
 function renderSingle(r){
   let cc=r.cf==='高'?'hi':(r.cf==='中'?'me':'lo'),ct=r.cf+'可信度';
-  let mm={dimension_based:'精确尺寸',cbm_based:'总体积',weight_only_estimate:'仅实重'};
+  let mm={dimension_based:'精确尺寸',cbm_based:'总体积',ratio_based:'泡比反推',weight_only_estimate:'仅实重'};
   let costEl=`
     <div class="sc-grid">
       <div class="sc hl"><div class="scl">最终总成本</div><div class="val">${r.cur} ${r.cost.toFixed(2)}</div></div>
