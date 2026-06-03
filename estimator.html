@@ -529,6 +529,16 @@ for(let td of tds){if(td.p==null)continue;let isNat=natNm===td.n,sw,pv;
 if(isNat){sw=rc;pv=false}else if(ap&&rc<td.t){sw=td.t;pv=true}else continue;
 let c=sw*td.p;if(rs._min!=null&&c<rs._min)c=rs._min;cs.push({tier:td.n,th:td.t,sw,up:td.p,cost:+c.toFixed(2),pv,rec:false})}return cs}
 
+function applyFeeMinimum(cost,min,type,label,cur,notes){
+  let rawCost=+cost.toFixed(2),minApplied=false;
+  if(type!=='manual'&&min>0&&cost<min){
+    cost=min;
+    minApplied=true;
+    notes.push(label+' 已按最低收费 '+cur+' '+min.toFixed(2)+' 计入，原计算费用为 '+cur+' '+rawCost.toFixed(2));
+  }
+  return{cost:+cost.toFixed(2),rawCost,minApplied};
+}
+
 function calcFees(fees,ctx,cur){let rows=[],total=0,notes=[];
 for(let f of (fees||[])){if(!f.enabled)continue;
   let code=(f.code||'').trim(),name=(f.name||'').trim(),type=f.type||'fixed',amt=Number(f.amount),min=Number(f.min||0);
@@ -541,8 +551,9 @@ for(let f of (fees||[])){if(!f.enabled)continue;
   else if(type==='per_cbm'){if(!ctx.cbmV||ctx.cbmV<=0)throw Error((name||code)+' 按 CBM 计费需要总体积');base=ctx.cbmV.toFixed(4)+' m³';unit=cur+'/m³';cost=ctx.cbmV*amt}
   else if(type==='percent'){base=cur+' '+ctx.mainCost.toFixed(2);unit='%';cost=ctx.mainCost*amt/100}
   else if(type==='manual'){base='手动';unit=cur;cost=amt;notes.push((name||code)+' 为手动费用，需人工确认')}
-  else if(type==='min_charge'){if(!ctx.sw)throw Error((name||code)+' 最低收费需要结算计费重');base=ctx.sw.toFixed(1)+' kg';unit=cur+'/kg';cost=Math.max(ctx.sw*amt,min)}
-  cost=+cost.toFixed(2);total+=cost;rows.push({code,name,type,amount:amt,min,base,unit,cost,enabled:true});
+  else if(type==='min_charge'){if(!ctx.sw)throw Error((name||code)+' 按 kg + 最低收费需要结算计费重');base=ctx.sw.toFixed(1)+' kg';unit=cur+'/kg';cost=ctx.sw*amt}
+  let feeMin=applyFeeMinimum(cost,min,type,name||code,cur,notes);
+  cost=feeMin.cost;total+=cost;rows.push({code,name,type,amount:amt,min,base,unit,cost,rawCost:feeMin.rawCost,minApplied:feeMin.minApplied,enabled:true});
 }
 return{total:+total.toFixed(2),items:rows,notes}}
 
@@ -608,7 +619,7 @@ const DEFAULT_FEES=[
   {code:'Pickup',name:'提货费',type:'fixed',amount:'',min:''},
   {code:'Other',name:'其他费用',type:'manual',amount:'',min:''},
 ];
-function feeTypeOptions(v){let ops=[['per_kg','按 kg'],['fixed','按票'],['per_cbm','按 CBM'],['percent','主运费 %'],['min_charge','最低收费'],['manual','手动总额']];
+function feeTypeOptions(v){let ops=[['per_kg','按 kg'],['fixed','按票'],['per_cbm','按 CBM'],['percent','主运费 %'],['min_charge','按 kg + 最低收费'],['manual','手动总额']];
   return ops.map(([k,t])=>`<option value="${k}" ${k===v?'selected':''}>${t}</option>`).join('')}
 function addFeeRow(listId,seed={}){
   let list=document.getElementById(listId);if(!list)return;
@@ -982,7 +993,7 @@ document.getElementById('cBtn').addEventListener('click',()=>{
 });
 
 function pF2(id){let el=document.getElementById(id);if(!el)return null;let v=parseFloat(el.value);return isNaN(v)?null:v}
-function feeTypeText(t){return{per_kg:'按 kg',fixed:'按票',per_cbm:'按 CBM',percent:'主运费 %',min_charge:'最低收费',manual:'手动总额'}[t]||t}
+function feeTypeText(t){return{per_kg:'按 kg',fixed:'按票',per_cbm:'按 CBM',percent:'主运费 %',min_charge:'按 kg + 最低收费',manual:'手动总额'}[t]||t}
 function _sortByCur(items){let g={};for(let i of items){let c=i.result?.currency||i.currency||'';if(!g[c])g[c]=[];g[c].push(i)}
 for(let k in g)g[k].sort((a,b)=>(a.result?.cost||0)-(b.result?.cost||0));
 let res=[],max=Math.max(...Object.values(g).map(a=>a.length)),ks=Object.keys(g).sort();
