@@ -169,11 +169,13 @@ tbody tr.rec{background:var(--acl)}tbody tr.rec td{font-weight:600}
 
 /* Fee rows */
 .fee-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
-.fee-row{display:grid;grid-template-columns:34px 70px 1.2fr 130px 1fr 1fr 34px;gap:8px;align-items:end}
+.fee-row{display:grid;grid-template-columns:32px minmax(90px,.8fr) minmax(150px,1.4fr) 32px;grid-template-areas:"check code name del" ". type type ." ". amt min .";gap:8px;align-items:center}
 .fee-row input,.fee-row select{padding:7px 8px;border:1px solid var(--bd);border-radius:6px;font-size:12px;background:#fafafa;width:100%;font-family:inherit}
-.fee-row .fee-check{align-self:center;justify-self:center}
+.fee-row .fee-check{grid-area:check;align-self:center;justify-self:center}
+.fee-code{grid-area:code}.fee-name{grid-area:name}.fee-type{grid-area:type}.fee-amt{grid-area:amt}.fee-min{grid-area:min}
 .fee-del{height:31px;width:31px;border:1px solid var(--bd);background:#fff;color:var(--da);border-radius:6px;cursor:pointer}
-@media(max-width:720px){.fee-row{grid-template-columns:34px 1fr 1fr}.fee-row .fee-name,.fee-row .fee-type,.fee-row .fee-amt,.fee-row .fee-min,.fee-row .fee-del{grid-column:auto}}
+.fee-del{grid-area:del}
+@media(max-width:720px){.fee-row{grid-template-columns:32px 1fr 32px;grid-template-areas:"check code del" ". name ." ". type ." ". amt ." ". min ."}}
 
 /* Airport autocomplete — list mounted to body, bypassing DOM/CSS nesting */
 .ac-list{display:none;position:fixed;max-height:220px;overflow-y:auto;background:#fff;border:1px solid var(--bd);border-radius:0 0 var(--rr) var(--rr);z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.15);min-width:200px}
