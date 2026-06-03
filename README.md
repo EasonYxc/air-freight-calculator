@@ -20,3 +20,10 @@
 ## 数据说明
 
 页面默认服务商和价格均为演示数据，不代表真实报价。
+
+## 修改后检查
+
+- 日常功能修改以 `estimator.html` 为主。
+- 提交和推送前运行 `node tools/sync-and-verify.mjs`。
+- 该命令会自动同步 `estimator.html -> index.html`，并运行机场展示、刷新保存、附加费最低收费等验证脚本。
+- 如果只想检查两份 HTML 是否已同步，可运行 `node tools/sync-and-verify.mjs --check-only`。
