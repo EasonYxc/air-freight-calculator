@@ -249,6 +249,11 @@ tbody tr.rec{background:var(--acl)}tbody tr.rec td{font-weight:600}
     <div class="cb">
       <div class="fg" style="margin-bottom:12px"><span class="lbl">计费重取整规则</span><select id="sRr"><option value="ceil_1kg">向上取整到 1 kg</option><option value="ceil_0.5kg">向上取整到 0.5 kg</option><option value="keep_decimal">保留小数</option></select></div>
       <div class="sw-row"><label class="sw"><input type="checkbox" id="sAp" checked><span class="sw-s"></span></label><span class="lbl">允许靠级（自动比较更高重量段）</span></div>
+      <div class="hr"></div>
+      <div class="sw-row"><label class="sw"><input type="checkbox" id="sSplit"><span class="sw-s"></span></label><span class="lbl">启用分泡计费</span></div>
+      <div id="sSplitOpts" style="display:none;margin-top:10px">
+        <div class="fr"><div class="fg"><span class="lbl">分泡规则</span><select id="sSplitRule"><option value="0.5">五五分泡（50%）</option><option value="0.4">四六分泡（40%）</option><option value="0.3">三七分泡（30%）</option><option value="custom">自定义比例</option></select></div><div class="fg"><span class="lbl">自定义承担比例 (%)</span><input type="number" id="sSplitCustom" value="50" min="0" max="100" step="1"></div></div>
+      </div>
     </div>
   </div>
 
@@ -305,6 +310,11 @@ tbody tr.rec{background:var(--acl)}tbody tr.rec td{font-weight:600}
         <div class="fg" style="margin-bottom:10px"><span class="lbl">默认计费系数</span><input type="number" id="cBf" value="6000" min="1000"></div>
         <div class="fg" style="margin-bottom:10px"><span class="lbl">默认取整规则</span><select id="cRr"><option value="ceil_1kg">向上取整到 1 kg</option><option value="ceil_0.5kg">向上取整到 0.5 kg</option><option value="keep_decimal">保留小数</option></select></div>
         <div class="sw-row"><label class="sw"><input type="checkbox" id="cAp" checked><span class="sw-s"></span></label><span class="lbl">默认允许靠级</span></div>
+        <div class="sw-row"><label class="sw"><input type="checkbox" id="cSplit"><span class="sw-s"></span></label><span class="lbl">默认启用分泡</span></div>
+        <div id="cSplitOpts" style="display:none;margin-top:10px">
+          <div class="fg" style="margin-bottom:10px"><span class="lbl">默认分泡规则</span><select id="cSplitRule"><option value="0.5">五五分泡（50%）</option><option value="0.4">四六分泡（40%）</option><option value="0.3">三七分泡（30%）</option><option value="custom">自定义比例</option></select></div>
+          <div class="fg"><span class="lbl">自定义承担比例 (%)</span><input type="number" id="cSplitCustom" value="50" min="0" max="100" step="1"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -447,26 +457,40 @@ for(let td of tds){if(td.p==null)continue;let isNat=natNm===td.n,sw,pv;
 if(isNat){sw=rc;pv=false}else if(ap&&rc<td.t){sw=td.t;pv=true}else continue;
 let c=sw*td.p;if(rs._min!=null&&c<rs._min)c=rs._min;cs.push({tier:td.n,th:td.t,sw,up:td.p,cost:+c.toFixed(2),pv,rec:false})}return cs}
 
-function estimate(pr){let{aw,gw,bf,pc,lc,wc,hc,cbm,rr,ap,rs}=pr;if(!gw||gw<=0)throw Error('总实重必须大于 0');
-let cm,cbmV=null,vw=null,rw;
-let hd=pc&&pc>0&&lc>0&&wc>0&&hc>0,hc2=cbm!=null&&cbm>0;
-if(hd){cm='dimension_based';let d=dimsMode(pc,lc,wc,hc,gw,bf);cbmV=d.cbm;vw=d.vw;rw=d.rc}
-else if(hc2){cm='cbm_based';cbmV=cbm;let d=cbmMode(cbm,gw,bf);vw=d.vw;rw=d.rc}
-else{cm='weight_only_estimate';rw=gw}
-let br=vw!=null&&gw>0?+(vw/gw).toFixed(2):null;
-let rc=roundWt(rw,rr);
-let nat=getNat(rc,rs);if(!nat)throw Error('价格表中无可用重量段');
+function bestForWeight(rc,rs,ap){let nat=getNat(rc,rs);if(!nat)throw Error('价格表中无可用重量段');
 let cs=genCands(rc,rs,nat.n,ap);if(!cs.length)throw Error('无法生成有效方案');
-cs.sort((a,b)=>{if(a.cost!==b.cost)return a.cost-b.cost;return a.pv?1:-1});cs[0].rec=true;
-let rec=cs[0],cfMap={dimension_based:'高',cbm_based:'中',weight_only_estimate:'低'},cf=cfMap[cm];
+cs.sort((a,b)=>{if(a.cost!==b.cost)return a.cost-b.cost;return a.pv?1:-1});cs.forEach(c=>c.rec=false);cs[0].rec=true;return{nat,cs,rec:cs[0]}}
+function estimate(pr){let{gw,bf,pc,lc,wc,hc,cbm,rr,ap,rs,vm,splitEnabled,splitRatio,splitRule}=pr;if(!gw||gw<=0)throw Error('总实重必须大于 0');
+if(!bf||bf<=0)throw Error('计费系数必须大于 0');
+let cm,cbmV=null,vw=null,stdRw;
+let hd=pc&&pc>0&&lc>0&&wc>0&&hc>0,hc2=cbm!=null&&cbm>0;
+if(vm==='dims'){if(!hd)throw Error('尺寸模式下件数、长、宽、高必须完整');cm='dimension_based';let d=dimsMode(pc,lc,wc,hc,gw,bf);cbmV=d.cbm;vw=d.vw;stdRw=d.rc}
+else if(vm==='cbm'){if(!hc2)throw Error('CBM 模式下总体积必须大于 0');cm='cbm_based';cbmV=cbm;let d=cbmMode(cbm,gw,bf);vw=d.vw;stdRw=d.rc}
+else if(vm==='none'){cm='weight_only_estimate';stdRw=gw}
+else if(hd){cm='dimension_based';let d=dimsMode(pc,lc,wc,hc,gw,bf);cbmV=d.cbm;vw=d.vw;stdRw=d.rc}
+else if(hc2){cm='cbm_based';cbmV=cbm;let d=cbmMode(cbm,gw,bf);vw=d.vw;stdRw=d.rc}
+else{cm='weight_only_estimate';stdRw=gw}
+let br=vw!=null&&gw>0?+(vw/gw).toFixed(2):null;
+let bubbleWeight=vw!=null?Math.max(0,vw-gw):0;
+let sr=Number(splitRatio);if(splitEnabled&&(isNaN(sr)||sr<0||sr>1))throw Error('分泡承担比例必须在 0% 到 100% 之间');
+let splitActive=!!splitEnabled&&bubbleWeight>0;
+let splitRw=splitActive?gw+bubbleWeight*sr:stdRw;
+let rw=splitRw,rc=roundWt(rw,rr);
+let best=bestForWeight(rc,rs,ap),nat=best.nat,cs=best.cs,rec=best.rec;
+let stdRc=roundWt(stdRw,rr),stdBest=splitActive?bestForWeight(stdRc,rs,ap):null;
+let saveWeight=splitActive?Math.max(0,stdRw-splitRw):0;
+let saveCost=splitActive&&stdBest?Math.max(0,stdBest.rec.cost-rec.cost):0;
+let cfMap={dimension_based:'高',cbm_based:'中',weight_only_estimate:'低'},cf=cfMap[cm];
 let rm=[];
 if(cm==='weight_only_estimate')rm.push('仅按实重预估，缺少尺寸和 CBM 数据，最终计费重可能变化');else rm.push('已根据体积信息完成计算');
 if(rec.pv)rm.push('靠级至 '+rec.tier+' 段后成本更低，自然段为 '+nat.n);else rm.push('未发生靠级，按自然段计费');
 if(br!=null&&br>1)rm.push('货物为泡货（泡比 '+br.toFixed(2)+'），体积重主导计费');
-let ncs=cs.filter(c=>!c.pv);if(rec.pv&&ncs.length){let s=ncs[0].cost-rec.cost;if(s>0)rm.push('靠级节省 '+s.toFixed(0)+' 元，建议与航司确认靠级可行性')}
-if(cs.length>=2){let d=cs[1].cost-cs[0].cost;if(d>0&&d<10)rm.push('备选方案 '+cs[1].tier+' 段成本仅差 '+d.toFixed(1)+' 元，可灵活选择')}
+if(splitActive)rm.push('已启用分泡计费，承担泡重 '+(sr*100).toFixed(0)+'%，节省计费重 '+saveWeight.toFixed(1)+' kg，节省成本 '+(pr.cur||'CNY')+' '+saveCost.toFixed(2));
+else if(splitEnabled)rm.push('已启用分泡，但当前没有泡重，分泡未生效');
+let ncs=cs.filter(c=>!c.pv);if(rec.pv&&ncs.length){let s=ncs[0].cost-rec.cost;if(s>0)rm.push('靠级节省 '+(pr.cur||'CNY')+' '+s.toFixed(0)+'，建议与航司确认靠级可行性')}
+if(cs.length>=2){let d=cs[1].cost-cs[0].cost;if(d>0&&d<10)rm.push('备选方案 '+cs[1].tier+' 段成本仅差 '+(pr.cur||'CNY')+' '+d.toFixed(1)+'，可灵活选择')}
 if(pr.valid)rm.push('报价有效期至 '+pr.valid+'，请在此日期前确认');
-return{cm,bf,rr,gw,cbmV,vw,br,rw:+rw.toFixed(2),rc,recTier:rec.tier,sw:rec.sw,rate:rec.up,cost:rec.cost,pv:rec.pv,cf,rm,cs,cur:pr.cur||'CNY'}
+return{cm,bf,rr,gw,cbmV,vw,br,rw:+rw.toFixed(2),rc,recTier:rec.tier,sw:rec.sw,rate:rec.up,cost:rec.cost,pv:rec.pv,cf,rm,cs,cur:pr.cur||'CNY',stdRw:+stdRw.toFixed(2),stdRc,bubbleWeight:+bubbleWeight.toFixed(2),splitEnabled:!!splitEnabled,splitActive,splitRatio:sr,splitRule:splitRule||'',splitRw:+splitRw.toFixed(2),saveWeight:+saveWeight.toFixed(2),saveCost:+saveCost.toFixed(2),stdCost:stdBest?stdBest.rec.cost:rec.cost}
 }
 </script>
 
@@ -500,18 +524,42 @@ function setupVolToggle(tgId,dimsId,cbmId,holder){
 setupVolToggle('sVolToggle','sDims','sCbm',{set vm(v){sVolMode=v},get vm(){return sVolMode}});
 setupVolToggle('cVolToggle','cDims','cCbm',{set vm(v){cVolMode=v},get vm(){return cVolMode}});
 
+function setSplitVisibility(checkId,optsId,ruleId,customId){
+  let chk=document.getElementById(checkId),opts=document.getElementById(optsId),rule=document.getElementById(ruleId),custom=document.getElementById(customId);
+  if(!chk||!opts)return;
+  opts.style.display=chk.checked?'block':'none';
+  if(custom)custom.parentElement.style.display=rule&&rule.value==='custom'?'flex':'none';
+}
+function bindSplitControls(checkId,optsId,ruleId,customId){
+  let chk=document.getElementById(checkId),rule=document.getElementById(ruleId);
+  if(chk)chk.addEventListener('change',()=>setSplitVisibility(checkId,optsId,ruleId,customId));
+  if(rule)rule.addEventListener('change',()=>setSplitVisibility(checkId,optsId,ruleId,customId));
+  setSplitVisibility(checkId,optsId,ruleId,customId);
+}
+function readSplitConfig(checkId,ruleId,customId){
+  let enabled=!!document.getElementById(checkId)?.checked;
+  let rule=document.getElementById(ruleId)?.value||'0.5';
+  let ratio=rule==='custom'?(parseFloat(document.getElementById(customId)?.value)/100):parseFloat(rule);
+  return{splitEnabled:enabled,splitRatio:isNaN(ratio)?0.5:ratio,splitRule:rule};
+}
+bindSplitControls('sSplit','sSplitOpts','sSplitRule','sSplitCustom');
+bindSplitControls('cSplit','cSplitOpts','cSplitRule','cSplitCustom');
+
 // Single mode calc
 document.getElementById('sBtn').addEventListener('click',()=>{
   document.getElementById('sErr').style.display='none';
   try{
+    let sp=readSplitConfig('sSplit','sSplitRule','sSplitCustom');
     let r=estimate({
       gw:parseFloat(document.getElementById('sGw').value),
-      pc:parseInt(document.getElementById('sPcs').value)||null,
-      lc:parseFloat(document.getElementById('sL').value)||0,wc:parseFloat(document.getElementById('sW').value)||0,hc:parseFloat(document.getElementById('sH').value)||0,
+      vm:sVolMode,
+      pc:sVolMode==='dims'?(parseInt(document.getElementById('sPcs').value)||null):null,
+      lc:sVolMode==='dims'?(parseFloat(document.getElementById('sL').value)||0):0,wc:sVolMode==='dims'?(parseFloat(document.getElementById('sW').value)||0):0,hc:sVolMode==='dims'?(parseFloat(document.getElementById('sH').value)||0):0,
       cbm:sVolMode==='cbm'?(parseFloat(document.getElementById('sCbmV').value)||null):null,
       bf:parseFloat(document.getElementById('sBf').value)||D,
       rr:document.getElementById('sRr').value,ap:document.getElementById('sAp').checked,
       cur:document.getElementById('sCur').value,valid:document.getElementById('sVal').value||null,
+      ...sp,
       rs:{_min:pF('sMin'),_n:pF('sN'),_45:pF('s45'),_100:pF('s100'),_300:pF('s300'),_500:pF('s500'),_1000:pF('s1000')}
     });
     document.getElementById('sResults').innerHTML=renderSingle(r);
@@ -534,6 +582,10 @@ function addCard(){
       <div class="fst"><div class="h3">服务商独立规则</div></div>
       <div class="fr"><div class="fg"><span class="lbl">计费系数</span><input type="number" id="pBf-${id}" value="6000" min="1000"></div><div class="fg"><span class="lbl">取整规则</span><select id="pRr-${id}"><option value="ceil_1kg">向上取整到 1 kg</option><option value="ceil_0.5kg">向上取整到 0.5 kg</option><option value="keep_decimal">保留小数</option></select></div></div>
       <div class="sw-row"><label class="sw"><input type="checkbox" id="pAp-${id}" checked><span class="sw-s"></span></label><span class="lbl">允许靠级</span></div>
+      <div class="sw-row"><label class="sw"><input type="checkbox" id="pSplit-${id}"><span class="sw-s"></span></label><span class="lbl">启用分泡</span></div>
+      <div id="pSplitOpts-${id}" style="display:none;margin-top:10px">
+        <div class="fr"><div class="fg"><span class="lbl">分泡规则</span><select id="pSplitRule-${id}"><option value="0.5">五五分泡（50%）</option><option value="0.4">四六分泡（40%）</option><option value="0.3">三七分泡（30%）</option><option value="custom">自定义比例</option></select></div><div class="fg"><span class="lbl">自定义承担比例 (%)</span><input type="number" id="pSplitCustom-${id}" value="50" min="0" max="100" step="1"></div></div>
+      </div>
       <div class="hr"></div>
       <div class="fst"><div class="h3">重量段价格</div></div>
       <div class="rate-grid">
@@ -548,6 +600,14 @@ function addCard(){
       <div style="margin-top:10px"><button class="btn-sm btn-sub" onclick="clearRates(${id})">清空价格</button></div>
     </div>`;
   grid.insertBefore(div,grid.lastElementChild);
+  let splitDefault=document.getElementById('cSplit');
+  if(splitDefault){
+    document.getElementById('pSplit-'+id).checked=splitDefault.checked;
+    document.getElementById('pSplitRule-'+id).value=document.getElementById('cSplitRule').value;
+    document.getElementById('pSplitCustom-'+id).value=document.getElementById('cSplitCustom').value;
+  }
+  bindSplitControls('pSplit-'+id,'pSplitOpts-'+id,'pSplitRule-'+id,'pSplitCustom-'+id);
+  setSplitVisibility('pSplit-'+id,'pSplitOpts-'+id,'pSplitRule-'+id,'pSplitCustom-'+id);
   setTimeout(()=>{setupAutocomplete('pOri-'+id);setupAutocomplete('pDst-'+id)},50);
 }
 
@@ -555,10 +615,11 @@ function delCard(id){document.getElementById('pcard-'+id)?.remove()}
 
 function copyCard(id){
   addCard();let nid=pCount,oid=id;
-  ['Name','Air','Time','Cur','Ori','Dst','Val','Bf','Rr','Ap'].forEach(k=>{
+  ['Name','Air','Time','Cur','Ori','Dst','Val','Bf','Rr','Ap','Split','SplitRule','SplitCustom'].forEach(k=>{
     let os=document.getElementById('p'+k+'-'+oid),ns=document.getElementById('p'+k+'-'+nid);
-    if(os&&ns){if(k==='Ap')ns.checked=os.checked;else ns.value=os.value}
+    if(os&&ns){if(k==='Ap'||k==='Split')ns.checked=os.checked;else ns.value=os.value}
   });
+  setSplitVisibility('pSplit-'+nid,'pSplitOpts-'+nid,'pSplitRule-'+nid,'pSplitCustom-'+nid);
   ['Min','N','45','100','300','500','1000'].forEach(k=>{
     let os=document.getElementById('p'+k+'-'+oid),ns=document.getElementById('p'+k+'-'+nid);
     if(os&&ns)ns.value=os.value;
@@ -590,8 +651,8 @@ document.getElementById('cBtn').addEventListener('click',()=>{
   document.getElementById('cErr').style.display='none';
   try{
     let gw=parseFloat(document.getElementById('cGw').value);
-    let pc=parseInt(document.getElementById('cPcs').value)||null;
-    let lc=parseFloat(document.getElementById('cL').value)||0,wc=parseFloat(document.getElementById('cW').value)||0,hc=parseFloat(document.getElementById('cH').value)||0;
+    let pc=cVolMode==='dims'?(parseInt(document.getElementById('cPcs').value)||null):null;
+    let lc=cVolMode==='dims'?(parseFloat(document.getElementById('cL').value)||0):0,wc=cVolMode==='dims'?(parseFloat(document.getElementById('cW').value)||0):0,hc=cVolMode==='dims'?(parseFloat(document.getElementById('cH').value)||0):0;
     let cbm=cVolMode==='cbm'?(parseFloat(document.getElementById('cCbmV').value)||null):null;
     let dbf=parseFloat(document.getElementById('cBf').value)||D,drr=document.getElementById('cRr').value,dap=document.getElementById('cAp').checked;
 
@@ -599,6 +660,7 @@ document.getElementById('cBtn').addEventListener('click',()=>{
     for(let i=1;i<=pCount;i++){
       let el=document.getElementById('pcard-'+i);if(!el)continue;
       let nm=document.getElementById('pName-'+i)?.value.trim();if(!nm)continue;
+      let sp=readSplitConfig('pSplit-'+i,'pSplitRule-'+i,'pSplitCustom-'+i);
       providers.push({
         name:nm,airline:document.getElementById('pAir-'+i)?.value.trim()||'',
         transitTime:parseInt(document.getElementById('pTime-'+i)?.value)||null,
@@ -609,6 +671,7 @@ document.getElementById('cBtn').addEventListener('click',()=>{
         bf:parseFloat(document.getElementById('pBf-'+i)?.value)||dbf,
         rr:document.getElementById('pRr-'+i)?.value||drr,
         ap:document.getElementById('pAp-'+i)?.checked,
+        ...sp,
         rates:{_min:pF2('pMin-'+i),_n:pF2('pN-'+i),_45:pF2('p45-'+i),_100:pF2('p100-'+i),_300:pF2('p300-'+i),_500:pF2('p500-'+i),_1000:pF2('p1000-'+i)}
       });
     }
@@ -617,7 +680,7 @@ document.getElementById('cBtn').addEventListener('click',()=>{
     let items=[],currencies=new Set();
     for(let p of providers){
       try{
-        let r=estimate({gw,pc,lc,wc,hc,cbm,bf:p.bf,rr:p.rr,ap:p.ap,cur:p.currency,valid:p.validUntil,rs:p.rates});
+        let r=estimate({gw,vm:cVolMode,pc,lc,wc,hc,cbm,bf:p.bf,rr:p.rr,ap:p.ap,cur:p.currency,valid:p.validUntil,splitEnabled:p.splitEnabled,splitRatio:p.splitRatio,splitRule:p.splitRule,rs:p.rates});
         currencies.add(p.currency);items.push({...p,result:r});
       }catch(e){items.push({...p,error:e.message})}
     }
@@ -643,6 +706,7 @@ function _genLbls(items,cc){
   if(bc.length)bc[0].label='最低成本方案';
   if(bn.length&&bn[0]!==bc[0])bn[0].label='自然段最低方案';
   for(let i of items){if(i.error||i.label)continue;if(i.result.pv){let nc=i.result.cs.filter(c=>!c.pv);if(nc.length&&nc[0].cost>0){let pct=(nc[0].cost-i.result.cost)/nc[0].cost*100;if(pct>10){i.label='靠级节省方案';break}}}}
+  for(let i of items){if(i.error||i.label)continue;if(i.result.splitActive&&i.result.saveCost>0){i.label='分泡节省方案';break}}
   if(bt.length&&cc&&bt[0]!==bc[0]&&!bt[0].label)bt[0].label='时效较快';
 }
 
@@ -655,7 +719,7 @@ function renderSingle(r){
       <div class="sc hl"><div class="scl">空运成本</div><div class="val">${r.cur} ${r.cost.toFixed(2)}</div></div>
       <div class="sc"><div class="scl">推荐重量段</div><div class="val">${r.recTier}</div></div>
       <div class="sc"><div class="scl">结算计费重</div><div class="val">${r.sw.toFixed(1)}<span class="scu"> kg</span></div></div>
-      <div class="sc"><div class="scl">适用单价</div><div class="val">${r.recTier==='Min'?r.rate.toFixed(2)+' 元/票':r.rate.toFixed(2)}<span class="scu"> 元/kg</span></div></div>
+      <div class="sc"><div class="scl">适用单价</div><div class="val">${r.recTier==='Min'?r.cur+' '+r.rate.toFixed(2):r.cur+' '+r.rate.toFixed(2)}<span class="scu">${r.recTier==='Min'?'/票':'/kg'}</span></div></div>
       <div class="sc"><div class="scl">可信度</div><div class="val"><span class="badge bd-${cc}">${ct}</span></div></div>
     </div>`;
 
@@ -667,8 +731,17 @@ function renderSingle(r){
   ];
   let infoBar=`<div class="ib">${ibParts.map(([k,v],i)=>`<div class="ib-item"><span class="ib-k">${k}</span><span class="ib-v">${v}</span></div>`).join('')}${r.pv?'<span class="badge bd-pv">靠级</span>':'<span class="badge bd-na">自然段</span>'}</div>`;
 
+  let splitSummary='';if(r.splitEnabled){splitSummary=`<div class="card"><div class="ch"><div class="h2">分泡摘要</div></div><div class="cb"><div class="sc-grid">
+    <div class="sc"><div class="scl">标准计费重</div><div class="val-sm">${r.stdRw.toFixed(1)} kg</div></div>
+    <div class="sc"><div class="scl">泡重</div><div class="val-sm">${r.bubbleWeight.toFixed(1)} kg</div></div>
+    <div class="sc"><div class="scl">分泡比例</div><div class="val-sm">${(r.splitRatio*100).toFixed(0)}%</div></div>
+    <div class="sc"><div class="scl">分泡计费重</div><div class="val-sm">${r.splitRw.toFixed(1)} kg</div></div>
+    <div class="sc hl"><div class="scl">节省重量</div><div class="val-sm">${r.saveWeight.toFixed(1)} kg</div></div>
+    <div class="sc hl"><div class="scl">节省成本</div><div class="val-sm">${r.cur} ${r.saveCost.toFixed(2)}</div></div>
+  </div></div></div>`}
+
   let table=`<div class="card"><div class="ch"><div class="h2">方案对比</div></div><div class="tbl-wrap"><table><thead><tr><th>重量段</th><th>段阈值</th><th>结算重量</th><th>单价</th><th>成本</th><th>段类型</th><th>推荐</th></tr></thead><tbody>
-    ${r.cs.map(c=>`<tr class="${c.rec?'rec':''}"><td>${c.tier}</td><td>${c.th!=null?'&ge; '+c.th+' kg':'—'}</td><td>${c.sw.toFixed(1)} kg</td><td>${c.tier==='Min'?c.up.toFixed(2)+' 元/票':c.up.toFixed(2)+' 元/kg'}</td><td>${r.cur} ${c.cost.toFixed(2)}</td><td>${c.pv?'<span class="badge bd-pv">靠级</span>':(c.tier!=='Min'?'<span class="badge bd-na">自然段</span>':'—')}</td><td>${c.rec?'<span class="badge bd-rec">推荐</span>':'—'}</td></tr>`).join('')}
+    ${r.cs.map(c=>`<tr class="${c.rec?'rec':''}"><td>${c.tier}</td><td>${c.th!=null?'&ge; '+c.th+' kg':'—'}</td><td>${c.sw.toFixed(1)} kg</td><td>${c.tier==='Min'?r.cur+' '+c.up.toFixed(2)+'/票':r.cur+' '+c.up.toFixed(2)+'/kg'}</td><td>${r.cur} ${c.cost.toFixed(2)}</td><td>${c.pv?'<span class="badge bd-pv">靠级</span>':(c.tier!=='Min'?'<span class="badge bd-na">自然段</span>':'—')}</td><td>${c.rec?'<span class="badge bd-rec">推荐</span>':'—'}</td></tr>`).join('')}
   </tbody></table></div></div>`;
 
   let bar=`<div class="card"><div class="ch"><div class="h2">成本对比</div></div><div class="cb"><div class="bar-chart">
@@ -676,10 +749,10 @@ function renderSingle(r){
   </div></div></div>`;
 
   let notes='';if(r.rm.length){notes=`<div class="card"><div class="ch"><div class="h2">备注与提醒</div></div><div class="cb"><ul class="nl">${r.rm.map(n=>{let cl='nt-info';
-    if(n.startsWith('靠级节省'))cl='nt-ok';else if(n.includes('泡货'))cl='nt-warn';else if(n.startsWith('已根据'))cl='nt-ok';
+    if(n.startsWith('靠级节省')||n.startsWith('已启用分泡计费'))cl='nt-ok';else if(n.includes('泡货')||n.includes('分泡未生效'))cl='nt-warn';else if(n.startsWith('已根据'))cl='nt-ok';
     return`<li class="${cl}">${n}</li>`}).join('')}</ul></div></div>`}
 
-  return costEl+infoBar+table+bar+notes;
+  return costEl+infoBar+splitSummary+table+bar+notes;
 }
 
 // Render compare results
@@ -700,19 +773,25 @@ function renderCompare(cr){
   }
 
   let rows=cr.items.map(i=>{
-    if(i.error)return`<tr><td>—</td><td>${i.name}</td><td>${i.airline}</td><td colspan="8" style="color:var(--da)">${i.error}</td></tr>`;
+    if(i.error)return`<tr><td>—</td><td>${i.name}</td><td>${i.airline}</td><td colspan="12" style="color:var(--da)">${i.error}</td></tr>`;
     let r=i.result,rc=i.rank===1?'rank-1':(i.rank===2?'rank-2':(i.rank===3?'rank-3':''));
-    let lbl='';if(i.label){let ls=i.label==='最低成本方案'?'bd-lo':(i.label==='自然段最低方案'?'bd-na':(i.label==='靠级节省方案'?'bd-pv':'bd-fa'));lbl=`<span class="badge ${ls}">${i.label}</span>`}
-    return`<tr class="${i.rank===1?'rec':''}"><td class="rank-col" style="font-weight:700;color:${i.rank===1?'var(--ac)':i.rank===2?'var(--t2)':'var(--t2)'}">${i.rank}</td><td>${i.name}</td><td>${i.airline}</td><td>${r.recTier}</td><td>${r.sw.toFixed(1)} kg</td><td>${r.rate.toFixed(2)} 元/kg</td><td>${r.cur} ${r.cost.toFixed(2)}</td><td>${r.pv?'<span class="badge bd-pv">是</span>':'<span class="badge bd-na">否</span>'}</td><td>${i.transitTime!=null?i.transitTime+' 天':'—'}</td><td>${lbl}</td></tr>`;
+    let lbl='';if(i.label){let ls=i.label==='最低成本方案'?'bd-lo':(i.label==='自然段最低方案'?'bd-na':(i.label==='靠级节省方案'||i.label==='分泡节省方案'?'bd-pv':'bd-fa'));lbl=`<span class="badge ${ls}">${i.label}</span>`}
+    let splitBadge=r.splitActive?'<span class="badge bd-pv">是</span>':(r.splitEnabled?'<span class="badge bd-info">未生效</span>':'<span class="badge bd-na">否</span>');
+    let note=r.rm.slice(-2).join('；');
+    return`<tr class="${i.rank===1?'rec':''}"><td class="rank-col" style="font-weight:700;color:${i.rank===1?'var(--ac)':i.rank===2?'var(--t2)':'var(--t2)'}">${i.rank}</td><td>${i.name}</td><td>${i.airline}</td><td>${r.recTier}</td><td>${r.sw.toFixed(1)} kg</td><td>${r.cur} ${r.rate.toFixed(2)}/${r.recTier==='Min'?'票':'kg'}</td><td>${r.cur} ${r.cost.toFixed(2)}</td><td>${r.pv?'<span class="badge bd-pv">是</span>':'<span class="badge bd-na">否</span>'}</td><td>${splitBadge}</td><td>${r.splitEnabled?(r.splitRatio*100).toFixed(0)+'%':'—'}</td><td>${r.cur} ${r.saveCost.toFixed(2)}</td><td>${i.transitTime!=null?i.transitTime+' 天':'—'}</td><td>${lbl}</td><td>${note}</td></tr>`;
   }).join('');
 
-  let table=`<div class="card"><div class="ch"><div class="h2">比价排名</div></div><div class="tbl-wrap"><table><thead><tr><th>排名</th><th>服务商</th><th>航司 / 渠道</th><th>重量段</th><th>结算重</th><th>单价</th><th>空运成本</th><th>靠级</th><th>时效</th><th>推荐标签</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  let table=`<div class="card"><div class="ch"><div class="h2">比价排名</div></div><div class="tbl-wrap"><table><thead><tr><th>排名</th><th>服务商</th><th>航司 / 渠道</th><th>重量段</th><th>结算重</th><th>单价</th><th>空运成本</th><th>靠级</th><th>分泡</th><th>分泡比例</th><th>节省成本</th><th>时效</th><th>推荐标签</th><th>备注</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 
   let bar='';if(vi.length>1){bar=`<div class="card"><div class="ch"><div class="h2">成本对比</div></div><div class="cb"><div class="bar-chart">
     ${(()=>{let m=Math.max(...vi.map(i=>i.result.cost),1);return vi.map((i,idx)=>{let p=i.result.cost/m*100,cl=idx===0?'rc':'na';return`<div class="br"><div class="bl">${i.name.substring(0,8)}</div><div class="bt"><div class="bf ${cl}" style="width:${p}%">${p>25?`<span class="bv">${i.result.cur} ${i.result.cost.toFixed(0)}</span>`:''}</div></div><div class="bc">${i.result.cur} ${i.result.cost.toFixed(2)}</div></div>`}).join('')})()}
   </div></div></div>`}
 
-  return curWarn+summary+table+bar;
+  let detail='';if(vi.length){detail=`<div class="card"><div class="ch"><div class="h2">服务商候选方案</div></div><div class="cb">
+    ${vi.map(i=>`<details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:13px;font-weight:600">${i.name} · ${i.result.cur} ${i.result.cost.toFixed(2)}</summary><div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>重量段</th><th>段阈值</th><th>结算重量</th><th>单价</th><th>成本</th><th>段类型</th><th>推荐</th></tr></thead><tbody>${i.result.cs.map(c=>`<tr class="${c.rec?'rec':''}"><td>${c.tier}</td><td>${c.th!=null?'&ge; '+c.th+' kg':'—'}</td><td>${c.sw.toFixed(1)} kg</td><td>${c.tier==='Min'?i.result.cur+' '+c.up.toFixed(2)+'/票':i.result.cur+' '+c.up.toFixed(2)+'/kg'}</td><td>${i.result.cur} ${c.cost.toFixed(2)}</td><td>${c.pv?'<span class="badge bd-pv">靠级</span>':'<span class="badge bd-na">自然段</span>'}</td><td>${c.rec?'<span class="badge bd-rec">推荐</span>':'—'}</td></tr>`).join('')}</tbody></table></div></details>`).join('')}
+  </div></div>`}
+
+  return curWarn+summary+table+bar+detail;
 }
 
 // Init single mode defaults & autocomplete
