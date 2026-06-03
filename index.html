@@ -593,6 +593,8 @@ return{cm,bf,rr,gw,cbmV,vw,br,rw:+rw.toFixed(2),rc,recTier:rec.tier,sw:rec.sw,ra
 <!-- ============================== -->
 <script>
 let pCount=0,sVolMode='dims',cVolMode='dims';
+const STATE_KEY='airFreightCalculatorState:v1';
+let autoSaveReady=false,restoringState=false,saveTimer=null;
 function pF(id){let v=parseFloat(document.getElementById(id).value);return isNaN(v)?null:v}
 function shErr(id,msg){let e=document.getElementById(id);e.textContent=msg;e.style.display='block'}
 const DEFAULT_FEES=[
@@ -648,6 +650,126 @@ function copyFeeRows(fromListId,toListId){
     amount:r.querySelector('.fee-amt').value,
     min:r.querySelector('.fee-min').value
   }));
+}
+
+function getFieldValue(el){return el.type==='checkbox'?el.checked:el.value}
+function setFieldValue(el,val){if(el.type==='checkbox')el.checked=!!val;else el.value=val??''}
+function collectFieldState(){
+  let fields={};
+  document.querySelectorAll('input[id],select[id],textarea[id]').forEach(el=>{fields[el.id]=getFieldValue(el)});
+  return fields;
+}
+function collectProviderIds(){return[...document.querySelectorAll('.pr-card')].map(el=>parseInt(el.id.replace('pcard-',''),10)).filter(n=>!isNaN(n))}
+function collectFeeListState(){
+  let lists={};
+  document.querySelectorAll('.fee-list[id]').forEach(list=>{
+    lists[list.id]=[...list.querySelectorAll('.fee-row')].map(r=>({
+      enabled:!!r.querySelector('.fee-check')?.checked,
+      code:r.querySelector('.fee-code')?.value||'',
+      name:r.querySelector('.fee-name')?.value||'',
+      type:r.querySelector('.fee-type')?.value||'fixed',
+      amount:r.querySelector('.fee-amt')?.value||'',
+      min:r.querySelector('.fee-min')?.value||''
+    }));
+  });
+  return lists;
+}
+function activeVolMode(tgId){return document.querySelector('#'+tgId+' .tg-btn.active')?.dataset.vm||'dims'}
+function setModeState(mode){
+  mode=mode==='compare'?'compare':'single';
+  document.querySelectorAll('#modeSeg .seg-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
+  document.getElementById('singleMode').style.display=mode==='single'?'block':'none';
+  document.getElementById('compareMode').style.display=mode==='compare'?'block':'none';
+}
+function setVolumeModeState(tgId,dimsId,cbmId,ratioId,mode,holder){
+  mode=['dims','cbm','ratio','none'].includes(mode)?mode:'dims';
+  document.querySelectorAll('#'+tgId+' .tg-btn').forEach(b=>b.classList.toggle('active',b.dataset.vm===mode));
+  if(holder)holder.vm=mode;
+  document.getElementById(dimsId).style.display=mode==='dims'?'block':'none';
+  document.getElementById(cbmId).style.display=mode==='cbm'?'block':'none';
+  document.getElementById(ratioId).style.display=mode==='ratio'?'block':'none';
+}
+function refreshFeeBox(enabledId,boxId,listId){
+  let chk=document.getElementById(enabledId),box=document.getElementById(boxId);if(!chk||!box)return;
+  box.style.display=chk.checked?'block':'none';
+  if(chk.checked)initDefaultFees(listId);
+}
+function refreshAirportInputs(){
+  ['sOri','sDst',...collectProviderIds().flatMap(id=>['pOri-'+id,'pDst-'+id])].forEach(id=>setupAutocomplete(id));
+}
+function restoreProviderCards(ids){
+  if(!Array.isArray(ids))return;
+  let target=ids.map(n=>parseInt(n,10)).filter(n=>n>0);
+  let max=Math.max(0,...target);
+  while(pCount<max)addCard();
+  document.querySelectorAll('.pr-card').forEach(card=>{
+    let id=parseInt(card.id.replace('pcard-',''),10);
+    if(!target.includes(id))card.remove();
+  });
+}
+function restoreFeeLists(lists){
+  if(!lists)return;
+  Object.entries(lists).forEach(([listId,rows])=>{
+    let list=document.getElementById(listId);if(!list||!Array.isArray(rows))return;
+    list.innerHTML='';
+    rows.forEach(row=>addFeeRow(listId,row));
+  });
+}
+function refreshRestoredUi(){
+  setSplitVisibility('sSplit','sSplitOpts','sSplitRule','sSplitCustom');
+  setSplitVisibility('cSplit','cSplitOpts','cSplitRule','cSplitCustom');
+  refreshFeeBox('sFeeEnable','sFeeBox','sFeeList');
+  collectProviderIds().forEach(id=>{
+    setSplitVisibility('pSplit-'+id,'pSplitOpts-'+id,'pSplitRule-'+id,'pSplitCustom-'+id);
+    refreshFeeBox('pFeeEnable-'+id,'pFeeBox-'+id,'pFeeList-'+id);
+  });
+  refreshAirportInputs();
+}
+function readSavedState(){
+  try{
+    let raw=localStorage.getItem(STATE_KEY);if(!raw)return null;
+    let state=JSON.parse(raw);
+    return state&&state.version===1?state:null;
+  }catch(e){console.warn('读取本地保存数据失败:',e);return null}
+}
+function restoreCalculatorState(){
+  let state=readSavedState();if(!state)return false;
+  restoringState=true;
+  try{
+    restoreProviderCards(state.providerIds);
+    restoreFeeLists(state.feeLists);
+    Object.entries(state.fields||{}).forEach(([id,val])=>{let el=document.getElementById(id);if(el)setFieldValue(el,val)});
+    setModeState(state.mode);
+    setVolumeModeState('sVolToggle','sDims','sCbm','sRatio',state.volumeModes?.single,{set vm(v){sVolMode=v},get vm(){return sVolMode}});
+    setVolumeModeState('cVolToggle','cDims','cCbm','cRatio',state.volumeModes?.compare,{set vm(v){cVolMode=v},get vm(){return cVolMode}});
+    refreshRestoredUi();
+    return true;
+  }finally{restoringState=false}
+}
+function saveCalculatorState(){
+  if(!autoSaveReady||restoringState)return;
+  try{
+    localStorage.setItem(STATE_KEY,JSON.stringify({
+      version:1,
+      savedAt:new Date().toISOString(),
+      mode:document.querySelector('#modeSeg .seg-btn.active')?.dataset.mode||'single',
+      volumeModes:{single:activeVolMode('sVolToggle'),compare:activeVolMode('cVolToggle')},
+      providerIds:collectProviderIds(),
+      fields:collectFieldState(),
+      feeLists:collectFeeListState()
+    }));
+  }catch(e){console.warn('保存本地数据失败:',e)}
+}
+function scheduleSave(){
+  if(!autoSaveReady||restoringState)return;
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(saveCalculatorState,120);
+}
+function bindAutoSave(){
+  document.addEventListener('input',scheduleSave);
+  document.addEventListener('change',scheduleSave);
+  document.addEventListener('click',e=>{if(e.target.closest('button,.seg-btn,.tg-btn,.add-btn'))scheduleSave()});
+  window.addEventListener('beforeunload',saveCalculatorState);
 }
 
 // Mode switch
@@ -768,9 +890,10 @@ function addCard(){
   setSplitVisibility('pSplit-'+id,'pSplitOpts-'+id,'pSplitRule-'+id,'pSplitCustom-'+id);
   bindFeeControls('pFeeEnable-'+id,'pFeeBox-'+id,'pFeeList-'+id);
   setTimeout(()=>{setupAutocomplete('pOri-'+id);setupAutocomplete('pDst-'+id)},50);
+  scheduleSave();
 }
 
-function delCard(id){document.getElementById('pcard-'+id)?.remove()}
+function delCard(id){document.getElementById('pcard-'+id)?.remove();scheduleSave()}
 
 function copyCard(id){
   addCard();let nid=pCount,oid=id;
@@ -785,9 +908,11 @@ function copyCard(id){
     if(os&&ns)ns.value=os.value;
   });
   copyFeeRows('pFeeList-'+oid,'pFeeList-'+nid);
+  refreshRestoredUi();
+  scheduleSave();
 }
 
-function clearRates(id){['Min','N','45','100','300','500','1000'].forEach(k=>{let el=document.getElementById('p'+k+'-'+id);if(el)el.value=''})}
+function clearRates(id){['Min','N','45','100','300','500','1000'].forEach(k=>{let el=document.getElementById('p'+k+'-'+id);if(el)el.value=''});scheduleSave()}
 
 // Init compare mode
 document.addEventListener('DOMContentLoaded',()=>{
@@ -992,6 +1117,15 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.tagName==='INPUT'&&document.getElementById('singleMode').style.display!=='none')document.getElementById('sBtn').click()});
+
+document.addEventListener('DOMContentLoaded',()=>{
+  setTimeout(()=>{
+    restoreCalculatorState();
+    autoSaveReady=true;
+    bindAutoSave();
+    saveCalculatorState();
+  },80);
+});
 </script>
 </body>
 </html>
